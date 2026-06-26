@@ -1,0 +1,6 @@
+{
+  "name": "A股金融数据终端与FastAPI服务",
+  "description": "基于 a-stock-data 设计的 A股全栈数据工具包，提供实时行情、财务、龙虎榜、北向资金等28个端点的数据查询，包含可一键部署至 Railway 的 Python FastAPI 高性能后端。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
