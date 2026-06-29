@@ -156,12 +156,32 @@ class GlobalNewsService:
     @classmethod
     def get_news_data(cls, force_fetch=False) -> dict:
         cache_file = get_cache_path()
-        if not force_fetch and os.path.exists(cache_file):
-            try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"[GlobalNewsService] Failed to load cache: {e}")
+        if not force_fetch:
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception as e:
+                    print(f"[GlobalNewsService] Failed to load cache: {e}")
+            
+            # Robust fallback to load data.js to avoid cold crawls on start
+            data_js_paths = [
+                "/investment-news/data.js",
+                "investment-news/data.js",
+                "../investment-news/data.js",
+                "./investment-news/data.js"
+            ]
+            for p in data_js_paths:
+                if os.path.exists(p):
+                    try:
+                        with open(p, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        start = content.find("{")
+                        end = content.rfind("}")
+                        if start != -1 and end != -1:
+                            return json.loads(content[start:end+1])
+                    except Exception as e:
+                        print(f"[GlobalNewsService] Failed to load data.js fallback: {e}")
 
         # Cache file not found or force refresh requested, do a fresh quick fetch
         return cls.refresh_news_feed_data()

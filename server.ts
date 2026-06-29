@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import axios from "axios";
+import { spawn, execSync } from "child_process";
 
 // Helper to convert stock tickers to prefixed tickers for Tencent quote
 function cleanCode(code: string): string {
@@ -341,10 +342,13 @@ async function startServer() {
         url: targetUrl,
         data: req.body,
         params: req.query,
-        headers: {
-          ...req.headers,
-          host: "127.0.0.1:8000",
-        },
+        headers: (() => {
+          const proxyHeaders = { ...req.headers };
+          delete proxyHeaders["authorization"];
+          delete proxyHeaders["cookie"];
+          proxyHeaders["host"] = "127.0.0.1:8000";
+          return proxyHeaders;
+        })(),
         validateStatus: () => true,
       });
       res.status(response.status).send(response.data);
@@ -370,6 +374,57 @@ async function startServer() {
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
+  }
+
+  // Start Python FastAPI backend if not already running
+  try {
+    console.log("Starting Python FastAPI backend on port 8000...");
+    const fastapiProcess = spawn("python3", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+      cwd: path.join(process.cwd(), "python-fastapi"),
+      stdio: "inherit",
+      env: { ...process.env, PYTHONUNBUFFERED: "1" }
+    });
+
+    fastapiProcess.on("error", (err) => {
+      console.warn("Failed to start FastAPI process with python3, attempting python:", err.message);
+      try {
+        const pProcess = spawn("python", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+          cwd: path.join(process.cwd(), "python-fastapi"),
+          stdio: "inherit",
+          env: { ...process.env, PYTHONUNBUFFERED: "1" }
+        });
+        pProcess.on("error", (err2) => {
+          console.warn("Failed to start FastAPI process with python, attempting uvicorn directly:", err2.message);
+          try {
+            const uProcess = spawn("uvicorn", ["app.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+              cwd: path.join(process.cwd(), "python-fastapi"),
+              stdio: "inherit",
+              env: { ...process.env, PYTHONUNBUFFERED: "1" }
+            });
+            uProcess.on("error", (err3) => {
+              console.error("All attempts to spawn Python FastAPI failed:", err3.message);
+            });
+          } catch (e) {
+            console.error("uvicorn spawn error:", e);
+          }
+        });
+      } catch (e) {
+        console.error("python spawn error:", e);
+      }
+    });
+
+    const cleanup = () => {
+      console.log("Shutting down Python FastAPI process...");
+      try {
+        fastapiProcess.kill();
+      } catch (e) {}
+    };
+
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+    process.on("exit", cleanup);
+  } catch (err: any) {
+    console.error("Error setting up Python FastAPI process:", err.message);
   }
 
   app.listen(PORT, "0.0.0.0", () => {
