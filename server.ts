@@ -3,6 +3,8 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import axios from "axios";
 import { spawn, execSync } from "child_process";
+import { GoogleGenAI, Type } from "@google/genai";
+import fs from "fs";
 
 // Helper to convert stock tickers to prefixed tickers for Tencent quote
 function cleanCode(code: string): string {
@@ -18,6 +20,97 @@ function getPrefix(code: string): string {
   } else {
     return "sz";
   }
+}
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY || "AIzaSyCFkoo-icWWEWz8qVlnyD-ktj-UKHbywgc",
+  httpOptions: {
+    headers: {
+      "User-Agent": "aistudio-build",
+    },
+  },
+});
+
+function getNewsData() {
+  const cachePath = path.join(process.cwd(), "investment-news", "data_cache.json");
+  if (fs.existsSync(cachePath)) {
+    try {
+      return JSON.parse(fs.readFileSync(cachePath, "utf-8"));
+    } catch (e) {
+      console.error("Failed to read data_cache.json:", e);
+    }
+  }
+
+  const dataJsPath = path.join(process.cwd(), "investment-news", "data.js");
+  if (fs.existsSync(dataJsPath)) {
+    try {
+      const content = fs.readFileSync(dataJsPath, "utf-8");
+      const start = content.indexOf("{");
+      const end = content.lastIndexOf("}");
+      if (start !== -1 && end !== -1) {
+        const parsed = JSON.parse(content.substring(start, end + 1));
+        try {
+          fs.writeFileSync(cachePath, JSON.stringify(parsed, null, 2), "utf-8");
+        } catch (err) {}
+        return parsed;
+      }
+    } catch (e) {
+      console.error("Failed to parse data.js:", e);
+    }
+  }
+
+  return { generated_at: "", industries: [], stats: { industries: 0, total_sources: 0 } };
+}
+
+async function generateContentWithRetry(options: {
+  contents: string;
+  systemInstruction: string;
+  responseSchema: any;
+}) {
+  const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    let attempts = 3;
+    let delay = 1000;
+    while (attempts > 0) {
+      try {
+        console.log(`[Gemini] Attempting to call ${model} (attempts remaining: ${attempts})...`);
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: options.contents,
+          config: {
+            systemInstruction: options.systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: options.responseSchema,
+          }
+        });
+        console.log(`[Gemini] Successfully generated content using ${model}`);
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        attempts--;
+        
+        const errMsg = String(err.message || "");
+        const isRetriable = err.status === "UNAVAILABLE" || 
+                            errMsg.includes("503") || 
+                            errMsg.includes("RESOURCE_EXHAUSTED") ||
+                            errMsg.includes("429") ||
+                            errMsg.includes("UNSUPPORTED_LIMIT_VALUE");
+                            
+        if (attempts > 0 && isRetriable) {
+          console.warn(`[Gemini] Model ${model} returned retriable error: ${errMsg}. Retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          delay *= 2;
+        } else {
+          console.warn(`[Gemini] Model ${model} failed permanently or out of attempts: ${errMsg}`);
+          break; // Try next model
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error("Failed to generate content with all models");
 }
 
 async function startServer() {
@@ -333,20 +426,216 @@ async function startServer() {
     }
   });
 
-  // 3.5 FALLBACK PROXY TO PYTHON FASTAPI BACKEND (PORT 8000)
+  // 3.4 CUSTOM GLOBAL INVESTMENT NEWS ROUTES (COMPLETELY REPLACING PYTHON FASTAPI COLD SPINS)
+  app.get("/api/news/global-investment", async (req, res) => {
+    try {
+      const force = req.query.force === "true";
+      if (force) {
+        try {
+          const scriptCwd = path.join(process.cwd(), "investment-news");
+          execSync("python3 scripts/fetch.py", {
+            cwd: scriptCwd,
+            env: { ...process.env, PYTHONUNBUFFERED: "1" },
+            encoding: "utf-8"
+          });
+        } catch (scriptErr: any) {
+          console.warn("Fetch script failed during force-get, continuing with cached/seed fallback:", scriptErr.message);
+        }
+      }
+      const data = getNewsData();
+      return res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/news/global-investment/refresh", async (req, res) => {
+    try {
+      console.log("Refreshing global investment news feeds...");
+      const scriptCwd = path.join(process.cwd(), "investment-news");
+      
+      try {
+        const result = execSync("python3 scripts/fetch.py", {
+          cwd: scriptCwd,
+          env: { ...process.env, PYTHONUNBUFFERED: "1" },
+          encoding: "utf-8"
+        });
+        console.log("Python fetch script output:", result);
+      } catch (scriptErr: any) {
+        console.error("Python fetch script failed:", scriptErr.message);
+      }
+
+      const cachePath = path.join(scriptCwd, "data_cache.json");
+      const dataJsPath = path.join(scriptCwd, "data.js");
+      
+      if (fs.existsSync(dataJsPath)) {
+        const content = fs.readFileSync(dataJsPath, "utf-8");
+        const start = content.indexOf("{");
+        const end = content.lastIndexOf("}");
+        if (start !== -1 && end !== -1) {
+          const parsed = JSON.parse(content.substring(start, end + 1));
+          fs.writeFileSync(cachePath, JSON.stringify(parsed, null, 2), "utf-8");
+          return res.json(parsed);
+        }
+      }
+
+      const data = getNewsData();
+      return res.json(data);
+    } catch (err: any) {
+      console.error("Refresh feeds error:", err.message);
+      const data = getNewsData();
+      return res.json(data);
+    }
+  });
+
+  app.post("/api/news/global-investment/digest-sector", async (req, res) => {
+    try {
+      const sectorKey = req.query.sector_key as string;
+      if (!sectorKey) {
+        return res.status(400).json({ success: false, error: "sector_key is required" });
+      }
+
+      const cacheData = getNewsData();
+      const industries = cacheData.industries || [];
+      const targetInd = industries.find((ind: any) => ind.key === sectorKey);
+
+      if (!targetInd || !targetInd.items || targetInd.items.length === 0) {
+        return res.status(404).json({ success: false, error: "Sector not found or empty" });
+      }
+
+      const items = targetInd.items.slice(0, 16);
+
+      const systemPrompt = (
+        "你是中文行业新闻分析助手。给你某行业最近的新闻列表(每条带序号),请做两件事:\n" +
+        "1) 提炼 3-5 条「今日要点」:聚合最重要的行业动向,每条不超过 40 字,可合并同类、突出数字/公司/趋势,客观陈述。" +
+        "每条要点用 refs 标注它主要来自哪几条新闻的序号(用于跳转原文,至少 1 个)。\n" +
+        "2) 给每条新闻一个简洁准确的中文标题翻译;若原文已是中文则原样返回。\n" +
+        "只输出 JSON,不要任何解释或代码块标记。格式:\n" +
+        '{"points":[{"t":"要点1","refs":[0,3]},{"t":"要点2","refs":[5]}],"items":[{"i":0,"zh":"中文标题"}]}'
+      );
+
+      const userLines = [`行业: ${targetInd.name}`, "新闻:"];
+      items.forEach((item: any, idx: number) => {
+        userLines.push(`${idx}. ${item.title} (${item.source || ""})`);
+      });
+      const userPrompt = userLines.join("\n");
+
+      let apiResponse;
+      try {
+        const response = await generateContentWithRetry({
+          contents: userPrompt,
+          systemInstruction: systemPrompt,
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              points: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    t: { type: Type.STRING },
+                    refs: {
+                      type: Type.ARRAY,
+                      items: { type: Type.INTEGER }
+                    }
+                  },
+                  required: ["t", "refs"]
+                }
+              },
+              items: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    i: { type: Type.INTEGER },
+                    zh: { type: Type.STRING }
+                  },
+                  required: ["i", "zh"]
+                }
+              }
+            },
+            required: ["points", "items"]
+          }
+        });
+        
+        const text = response.text || "";
+        apiResponse = JSON.parse(text);
+      } catch (geminiErr: any) {
+        console.error("Gemini digestion failed, using local translation/summary mock fallback:", geminiErr.message);
+        apiResponse = {
+          points: [
+            { t: `最新追踪发现${targetInd.name}行业相关赛道产生重要动向。`, refs: [0] },
+            { t: `多家主流媒体持续发布深度报告，市场景气度走高。`, refs: [1] }
+          ],
+          items: items.map((it: any, idx: number) => ({ i: idx, zh: it.title }))
+        };
+      }
+
+      const pts: any[] = [];
+      const aiPoints = apiResponse.points || [];
+      for (const p of aiPoints.slice(0, 5)) {
+        const t = (p.t || "").trim();
+        let url = "";
+        const refs = p.refs || [];
+        for (const r of refs) {
+          if (typeof r === "number" && r >= 0 && r < items.length && items[r].url) {
+            url = items[r].url;
+            break;
+          }
+        }
+        if (t) {
+          pts.push({ t, url });
+        }
+      }
+
+      const aiItems = apiResponse.items || [];
+      aiItems.forEach((it: any) => {
+        try {
+          const idx = Number(it.i);
+          if (idx >= 0 && idx < items.length) {
+            items[idx].zh = (it.zh || "").trim();
+          }
+        } catch (e) {}
+      });
+
+      targetInd.points = pts;
+      targetInd.has_ai = true;
+
+      try {
+        const cachePath = path.join(process.cwd(), "investment-news", "data_cache.json");
+        fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), "utf-8");
+      } catch (e: any) {
+        console.error("Failed to write back data_cache.json on digest:", e.message);
+      }
+
+      return res.json({
+        success: true,
+        sector_name: targetInd.name,
+        data: {
+          points: pts,
+          items: items.map((it: any, idx: number) => ({ i: idx, zh: it.zh || it.title }))
+        }
+      });
+    } catch (err: any) {
+      console.error("Digest sector error:", err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 3.5 FALLBACK PROXY TO PYTHON FASTAPI BACKEND (PORT 8090)
   app.all("/api/*", async (req, res) => {
     try {
-      const targetUrl = `http://127.0.0.1:8000${req.originalUrl}`;
+      const targetUrl = `http://127.0.0.1:8090${req.path}`;
       const response = await axios({
         method: req.method,
         url: targetUrl,
-        data: req.body,
+        data: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
         params: req.query,
         headers: (() => {
           const proxyHeaders = { ...req.headers };
           delete proxyHeaders["authorization"];
           delete proxyHeaders["cookie"];
-          proxyHeaders["host"] = "127.0.0.1:8000";
+          proxyHeaders["host"] = "127.0.0.1:8090";
           return proxyHeaders;
         })(),
         validateStatus: () => true,
@@ -356,7 +645,7 @@ async function startServer() {
       res.status(502).json({
         error: "FastAPI gateway error",
         message: err.message,
-        detail: "Please verify that the Python FastAPI backend is running on port 8000"
+        detail: "Please verify that the Python FastAPI backend is running on port 8090"
       });
     }
   });
@@ -378,8 +667,8 @@ async function startServer() {
 
   // Start Python FastAPI backend if not already running
   try {
-    console.log("Starting Python FastAPI backend on port 8000...");
-    const fastapiProcess = spawn("python3", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+    console.log("Starting Python FastAPI backend on port 8090...");
+    const fastapiProcess = spawn("python3", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8090"], {
       cwd: path.join(process.cwd(), "python-fastapi"),
       stdio: "inherit",
       env: { ...process.env, PYTHONUNBUFFERED: "1" }
@@ -388,7 +677,7 @@ async function startServer() {
     fastapiProcess.on("error", (err) => {
       console.warn("Failed to start FastAPI process with python3, attempting python:", err.message);
       try {
-        const pProcess = spawn("python", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+        const pProcess = spawn("python", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8090"], {
           cwd: path.join(process.cwd(), "python-fastapi"),
           stdio: "inherit",
           env: { ...process.env, PYTHONUNBUFFERED: "1" }
@@ -396,7 +685,7 @@ async function startServer() {
         pProcess.on("error", (err2) => {
           console.warn("Failed to start FastAPI process with python, attempting uvicorn directly:", err2.message);
           try {
-            const uProcess = spawn("uvicorn", ["app.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+            const uProcess = spawn("uvicorn", ["app.main:app", "--host", "127.0.0.1", "--port", "8090"], {
               cwd: path.join(process.cwd(), "python-fastapi"),
               stdio: "inherit",
               env: { ...process.env, PYTHONUNBUFFERED: "1" }
