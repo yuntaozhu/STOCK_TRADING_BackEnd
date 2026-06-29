@@ -332,6 +332,31 @@ async function startServer() {
     }
   });
 
+  // 3.5 FALLBACK PROXY TO PYTHON FASTAPI BACKEND (PORT 8000)
+  app.all("/api/*", async (req, res) => {
+    try {
+      const targetUrl = `http://127.0.0.1:8000${req.originalUrl}`;
+      const response = await axios({
+        method: req.method,
+        url: targetUrl,
+        data: req.body,
+        params: req.query,
+        headers: {
+          ...req.headers,
+          host: "127.0.0.1:8000",
+        },
+        validateStatus: () => true,
+      });
+      res.status(response.status).send(response.data);
+    } catch (err: any) {
+      res.status(502).json({
+        error: "FastAPI gateway error",
+        message: err.message,
+        detail: "Please verify that the Python FastAPI backend is running on port 8000"
+      });
+    }
+  });
+
   // 4. INTEGRATE VITE FOR SPA CLIENT PREVIEW OR SERVE STATIC IN PRODUCTION
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

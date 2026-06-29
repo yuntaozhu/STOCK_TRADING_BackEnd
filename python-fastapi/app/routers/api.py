@@ -11,6 +11,7 @@ from app.services.capital import CapitalService
 from app.services.news import NewsService
 from app.services.financials import FinancialsService
 from app.services.announcements import AnnouncementsService
+from app.services.global_news import GlobalNewsService
 
 router = APIRouter(prefix="/api")
 
@@ -194,6 +195,33 @@ def get_stock_news(code: str, page_size: int = 20):
 def get_global_news(page_size: int = 50):
     """7x24小时财经快讯、全市场全球宏观电报流"""
     return NewsService.get_eastmoney_global_news(page_size)
+
+@router.get("/news/global-investment", tags=["News"])
+def get_global_investment_news(force: bool = False):
+    """获取全球投研咨询及行业深度AI要点(含缓存支持)"""
+    try:
+        return GlobalNewsService.get_news_data(force_fetch=force)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch global investment news: {e}")
+
+@router.post("/news/global-investment/refresh", tags=["News"])
+def refresh_global_investment_news(recent_days: int = Query(7, description="Fetch news from the last N days")):
+    """重新抓取并更新全行业全球投研资讯"""
+    try:
+        return GlobalNewsService.refresh_news_feed_data(recent_days=recent_days)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refresh feeds: {e}")
+
+@router.post("/news/global-investment/digest-sector", tags=["News"])
+def digest_sector_investment_news(sector_key: str = Query(..., description="The industry sector key to digest (e.g. ai, semi, robot)")):
+    """利用 Gemini 大模型对指定赛道新闻进行提炼(今日要点 + 中文标题翻译)"""
+    try:
+        res = GlobalNewsService.digest_sector(sector_key)
+        if not res.get("success"):
+            raise HTTPException(status_code=500, detail=res.get("error", "AI digestion failed"))
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================================

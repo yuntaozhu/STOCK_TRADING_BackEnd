@@ -26,6 +26,8 @@ import {
   ExternalLink,
   Cpu,
   RefreshCw,
+  Globe,
+  Sparkles,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -38,6 +40,7 @@ import {
   Bar,
   Legend,
 } from "recharts";
+import { BACKEND_ENDPOINTS, STOCK_ANALYSIS_PROMPT } from "./data/endpoints";
 
 // Default supported stock list for quick select and resilient mock database
 const PRESET_STOCKS = [
@@ -215,10 +218,20 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // Global investment news states
+  const [globalInvestmentData, setGlobalInvestmentData] = useState<any>(null);
+  const [selectedSector, setSelectedSector] = useState<string>("ai");
+  const [globalInvestmentLoading, setGlobalInvestmentLoading] = useState<boolean>(false);
+  const [sectorDigesting, setSectorDigesting] = useState<string | null>(null);
+  const [globalInvestmentError, setGlobalInvestmentError] = useState<string | null>(null);
+
   // FastAPI project visualizer state
   const [fastApiFiles, setFastApiFiles] = useState<any[]>([]);
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [copiedFile, setCopiedFile] = useState(false);
+  const [fastApiSubTab, setFastApiSubTab] = useState("endpoints");
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [endpointSearchQuery, setEndpointSearchQuery] = useState("");
 
   // Load the Python codebase structure on mount
   useEffect(() => {
@@ -234,6 +247,95 @@ export default function App() {
         }
       })
       .catch((err) => console.error("Error fetching files:", err));
+  }, []);
+
+  // Global investment news loaders
+  const fetchGlobalInvestmentNews = (force = false) => {
+    setGlobalInvestmentLoading(true);
+    setGlobalInvestmentError(null);
+    fetch(`/api/news/global-investment?force=${force}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        return res.json();
+      })
+      .then((data) => {
+        setGlobalInvestmentData(data);
+        if (data?.industries?.length > 0) {
+          const keys = data.industries.map((ind: any) => ind.key);
+          if (!keys.includes(selectedSector)) {
+            setSelectedSector(data.industries[0].key);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Error fetching global investment news:", err);
+        setGlobalInvestmentError("无法连接到 Python FastAPI 服务。这可能是因为 FastAPI 正在启动中。您可以稍后点击刷新。");
+      })
+      .finally(() => {
+        setGlobalInvestmentLoading(false);
+      });
+  };
+
+  const handleFullRefreshFeeds = () => {
+    setGlobalInvestmentLoading(true);
+    setGlobalInvestmentError(null);
+    fetch("/api/news/global-investment/refresh", { method: "POST" })
+      .then((res) => {
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        return res.json();
+      })
+      .then((data) => {
+        setGlobalInvestmentData(data);
+        if (data?.industries?.length > 0) {
+          const keys = data.industries.map((ind: any) => ind.key);
+          if (!keys.includes(selectedSector)) {
+            setSelectedSector(data.industries[0].key);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Error refreshing feeds:", err);
+        setGlobalInvestmentError("抓取投研资讯失败，请确保 Python FastAPI 后端已开启且能够访问公网：" + err.message);
+      })
+      .finally(() => {
+        setGlobalInvestmentLoading(false);
+      });
+  };
+
+  const handleDigestSector = (sectorKey: string) => {
+    setSectorDigesting(sectorKey);
+    fetch(`/api/news/global-investment/digest-sector?sector_key=${sectorKey}`, { method: "POST" })
+      .then((res) => {
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        return res.json();
+      })
+      .then((result) => {
+        if (result.success && result.sector) {
+          setGlobalInvestmentData((prev: any) => {
+            if (!prev) return prev;
+            const updatedInds = prev.industries.map((ind: any) => {
+              if (ind.key === sectorKey) {
+                return result.sector;
+              }
+              return ind;
+            });
+            return { ...prev, industries: updatedInds };
+          });
+        } else {
+          setGlobalInvestmentError("Gemini AI 提炼失败：" + (result.error || "请检查网络或稍后重试"));
+        }
+      })
+      .catch((err) => {
+        console.error("Error digesting sector:", err);
+        setGlobalInvestmentError("Gemini AI 提炼超时或失败，请检查 Gemini APIKey 和网络连接：" + err.message);
+      })
+      .finally(() => {
+        setSectorDigesting(null);
+      });
+  };
+
+  useEffect(() => {
+    fetchGlobalInvestmentNews();
   }, []);
 
   // Fetch real-time data from node proxies whenever selected stock changes
@@ -337,23 +439,29 @@ export default function App() {
     }
   };
 
+  const handleCopyPrompt = () => {
+    navigator.clipboard.writeText(STOCK_ANALYSIS_PROMPT);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 2000);
+  };
+
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-100">
+    <div className="min-h-screen bg-[#F9F8F6] text-[#1A1A1A] flex flex-col font-sans selection:bg-[#1A1A1A]/10 selection:text-[#1A1A1A]">
       
       {/* HEADER BAR */}
-      <header className="border-b border-zinc-800 bg-zinc-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <header className="border-b-[1.5px] border-[#1A1A1A] bg-[#F9F8F6]/85 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl shadow-lg shadow-emerald-500/10 border border-emerald-400/20">
-            <Cpu className="w-5 h-5 text-zinc-950 fill-zinc-950/20" />
+          <div className="p-2.5 bg-[#1A1A1A] rounded-xl shadow-[4px_4px_0px_rgba(0,0,0,0.15)] border border-[#1A1A1A]">
+            <Cpu className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight text-white flex items-center gap-2">
+            <h1 className="text-xl font-serif italic font-semibold tracking-tight text-[#1A1A1A] flex items-center gap-2">
               A股金融数据终端与FastAPI部署包
-              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span className="text-[10px] uppercase tracking-[0.15em] font-bold py-0.5 px-2 bg-[#1A1A1A] text-white rounded-full">
                 V3.2.3 Build
               </span>
             </h1>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs text-zinc-500 mt-0.5 font-medium">
               基于 mootdx/腾讯/东财/巨潮七层架构打造的数据采集和高级估值分析核心
             </p>
           </div>
@@ -361,15 +469,15 @@ export default function App() {
 
         {/* QUICK PRESETS & SEARCH */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
+          <div className="flex bg-[#EFECE8] border border-[#1A1A1A] rounded-lg p-0.5 shadow-[2px_2px_0px_#1A1A1A]">
             {PRESET_STOCKS.map((st) => (
               <button
                 key={st.code}
                 onClick={() => setSelectedStock(st.code)}
                 className={`px-3 py-1 text-xs font-mono rounded transition-all ${
                   selectedStock === st.code
-                    ? "bg-zinc-800 text-emerald-400 font-semibold"
-                    : "text-zinc-400 hover:text-zinc-200"
+                    ? "bg-[#1A1A1A] text-white font-semibold shadow-sm"
+                    : "text-[#1A1A1A]/70 hover:text-[#1A1A1A] hover:bg-[#1A1A1A]/5"
                 }`}
               >
                 {st.name}
@@ -379,19 +487,19 @@ export default function App() {
 
           <form onSubmit={handleSearch} className="flex gap-1">
             <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#1A1A1A]/50" />
               <input
                 type="text"
                 value={customCode}
                 onChange={(e) => setCustomCode(e.target.value)}
                 placeholder="6位股票代码..."
                 maxLength={6}
-                className="w-32 bg-zinc-950 border border-zinc-800 pl-8 pr-2 py-1 rounded-lg text-xs font-mono focus:border-emerald-500 focus:outline-none transition-all placeholder:text-zinc-600 text-white"
+                className="w-32 bg-white border border-[#1A1A1A] pl-8 pr-2 py-1 rounded-lg text-xs font-mono focus:ring-1 focus:ring-[#1A1A1A] focus:outline-none transition-all placeholder:text-[#1A1A1A]/30 text-[#1A1A1A] shadow-[2px_2px_0px_#1A1A1A]"
               />
             </div>
             <button
               type="submit"
-              className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs px-3 py-1 rounded-lg transition-colors flex items-center gap-1"
+              className="bg-[#1A1A1A] hover:bg-neutral-800 text-white font-semibold text-xs px-3 py-1 rounded-lg transition-colors flex items-center gap-1 shadow-[2px_2px_0px_rgba(0,0,0,0.15)] cursor-pointer"
             >
               分析
             </button>
@@ -400,22 +508,22 @@ export default function App() {
       </header>
 
       {/* CORE STATS BANNER */}
-      <div className="bg-zinc-900 border-b border-zinc-800 px-6 py-5">
+      <div className="bg-[#EFECE8] border-b-[1.5px] border-[#1A1A1A] px-6 py-5">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold tracking-tight text-white">{displayName}</span>
-                <span className="font-mono text-sm px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">{selectedStock}</span>
-                <span className="text-xs text-zinc-500 font-mono">[{displayIndustry}]</span>
+                <span className="text-3xl font-serif font-medium tracking-tight text-[#1A1A1A]">{displayName}</span>
+                <span className="font-mono text-xs px-2 py-0.5 rounded bg-white text-[#1A1A1A] border border-[#1A1A1A]/20">{selectedStock}</span>
+                <span className="text-xs text-zinc-500 font-serif italic">[{displayIndustry}]</span>
               </div>
-              <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-400">
+              <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-600 font-medium">
                 <span className="flex items-center gap-1">
                   <Database className="w-3.5 h-3.5 text-zinc-500" />
-                  前向一致预期覆盖: <b className="text-zinc-200 font-semibold">{activeStockMock.forecast[0].机构数}家</b> 评级机构
+                  前向一致预期覆盖: <b className="text-[#1A1A1A] font-bold">{activeStockMock.forecast[0].机构数}家</b> 评级机构
                 </span>
                 {loading && (
-                  <span className="flex items-center gap-1 text-emerald-400">
+                  <span className="flex items-center gap-1 text-[#1A1A1A] font-semibold animate-pulse">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     云数据流同步中...
                   </span>
@@ -425,30 +533,30 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
-            <div className="border-l border-zinc-800 pl-4">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500">实时价 (元)</div>
-              <div className="text-xl font-bold font-mono tracking-tight text-white mt-1 flex items-baseline gap-1.5">
+            <div className="border-l border-[#1A1A1A]/20 pl-4">
+              <div className="text-[10px] uppercase tracking-[0.15em] font-bold text-zinc-500">实时价 (元)</div>
+              <div className="text-2xl font-bold font-mono tracking-tight text-[#1A1A1A] mt-1 flex items-baseline gap-1.5">
                 {displayPrice}
-                <span className={`text-xs font-semibold ${displayChangePct >= 0 ? "text-red-500" : "text-green-500"}`}>
+                <span className={`text-xs font-bold ${displayChangePct >= 0 ? "text-red-600" : "text-green-600"}`}>
                   {displayChangePct >= 0 ? "+" : ""}{displayChangePct}%
                 </span>
               </div>
             </div>
-            <div className="border-l border-zinc-800 pl-4">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500">估值市盈率 PE(TTM)</div>
-              <div className="text-xl font-bold font-mono tracking-tight text-zinc-100 mt-1">
+            <div className="border-l border-[#1A1A1A]/20 pl-4">
+              <div className="text-[10px] uppercase tracking-[0.15em] font-bold text-zinc-500">估值市盈率 PE(TTM)</div>
+              <div className="text-2xl font-bold font-mono tracking-tight text-[#1A1A1A] mt-1">
                 {displayPeTtm}x
               </div>
             </div>
-            <div className="border-l border-zinc-800 pl-4">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500">市净率 PB</div>
-              <div className="text-xl font-bold font-mono tracking-tight text-zinc-100 mt-1">
+            <div className="border-l border-[#1A1A1A]/20 pl-4">
+              <div className="text-[10px] uppercase tracking-[0.15em] font-bold text-zinc-500">市净率 PB</div>
+              <div className="text-2xl font-bold font-mono tracking-tight text-[#1A1A1A] mt-1">
                 {displayPb}x
               </div>
             </div>
-            <div className="border-l border-zinc-800 pl-4">
-              <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500">总市值 (亿元)</div>
-              <div className="text-xl font-bold font-mono tracking-tight text-emerald-400 mt-1">
+            <div className="border-l border-[#1A1A1A]/20 pl-4">
+              <div className="text-[10px] uppercase tracking-[0.15em] font-bold text-zinc-500">总市值 (亿元)</div>
+              <div className="text-2xl font-bold font-mono tracking-tight text-[#1A1A1A] mt-1">
                 {displayMcap}
               </div>
             </div>
@@ -460,13 +568,15 @@ export default function App() {
       <div className="flex-1 flex flex-col lg:flex-row max-w-7xl w-full mx-auto p-6 gap-6">
         
         {/* LEFT NAV BAR */}
-        <aside className="lg:w-64 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible pb-3 lg:pb-0 border-b lg:border-b-0 lg:border-r border-zinc-800/60 lg:pr-6 shrink-0">
-          <div className="text-[10px] uppercase tracking-wider font-bold text-zinc-500 mb-2 hidden lg:block px-3">数据架构七层天路</div>
+        <aside className="lg:w-64 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible pb-3 lg:pb-0 border-b lg:border-b-0 lg:border-r border-[#1A1A1A]/10 lg:pr-6 shrink-0">
+          <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-zinc-400 mb-3 hidden lg:block px-3">数据架构七层天路</div>
           
           <button
             onClick={() => setActiveTab("market")}
-            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg transition-all w-full text-left whitespace-nowrap ${
-              activeTab === "market" ? "bg-zinc-900 text-emerald-400 shadow" : "text-zinc-400 hover:text-zinc-200"
+            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all w-full text-left whitespace-nowrap cursor-pointer ${
+              activeTab === "market"
+                ? "bg-[#1A1A1A] text-white shadow-[4px_4px_0px_rgba(0,0,0,0.15)]"
+                : "text-[#1A1A1A]/70 hover:text-[#1A1A1A] hover:bg-[#EFECE8]"
             }`}
           >
             <TrendingUp className="w-4 h-4 shrink-0" />
@@ -475,8 +585,10 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("reports")}
-            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg transition-all w-full text-left whitespace-nowrap ${
-              activeTab === "reports" ? "bg-zinc-900 text-emerald-400 shadow" : "text-zinc-400 hover:text-zinc-200"
+            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all w-full text-left whitespace-nowrap cursor-pointer ${
+              activeTab === "reports"
+                ? "bg-[#1A1A1A] text-white shadow-[4px_4px_0px_rgba(0,0,0,0.15)]"
+                : "text-[#1A1A1A]/70 hover:text-[#1A1A1A] hover:bg-[#EFECE8]"
             }`}
           >
             <FileText className="w-4 h-4 shrink-0" />
@@ -485,8 +597,10 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("signals")}
-            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg transition-all w-full text-left whitespace-nowrap ${
-              activeTab === "signals" ? "bg-zinc-900 text-emerald-400 shadow" : "text-zinc-400 hover:text-zinc-200"
+            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all w-full text-left whitespace-nowrap cursor-pointer ${
+              activeTab === "signals"
+                ? "bg-[#1A1A1A] text-white shadow-[4px_4px_0px_rgba(0,0,0,0.15)]"
+                : "text-[#1A1A1A]/70 hover:text-[#1A1A1A] hover:bg-[#EFECE8]"
             }`}
           >
             <Radio className="w-4 h-4 shrink-0" />
@@ -494,9 +608,11 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveTab("capital")}
-            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg transition-all w-full text-left whitespace-nowrap ${
-              activeTab === "capital" ? "bg-zinc-900 text-emerald-400 shadow" : "text-zinc-400 hover:text-zinc-200"
+            onClick={() => setSelectedStock === "capital" || setActiveTab("capital")}
+            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all w-full text-left whitespace-nowrap cursor-pointer ${
+              activeTab === "capital"
+                ? "bg-[#1A1A1A] text-white shadow-[4px_4px_0px_rgba(0,0,0,0.15)]"
+                : "text-[#1A1A1A]/70 hover:text-[#1A1A1A] hover:bg-[#EFECE8]"
             }`}
           >
             <Coins className="w-4 h-4 shrink-0" />
@@ -505,32 +621,46 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("news")}
-            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg transition-all w-full text-left whitespace-nowrap ${
-              activeTab === "news" ? "bg-zinc-900 text-emerald-400 shadow" : "text-zinc-400 hover:text-zinc-200"
+            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all w-full text-left whitespace-nowrap cursor-pointer ${
+              activeTab === "news"
+                ? "bg-[#1A1A1A] text-white shadow-[4px_4px_0px_rgba(0,0,0,0.15)]"
+                : "text-[#1A1A1A]/70 hover:text-[#1A1A1A] hover:bg-[#EFECE8]"
             }`}
           >
             <Newspaper className="w-4 h-4 shrink-0" />
             <span>新闻/公告 (巨潮/资讯)</span>
           </button>
 
-          <div className="h-px bg-zinc-850 my-4 hidden lg:block" />
-          <div className="text-[10px] uppercase tracking-wider font-bold text-zinc-500 mb-2 hidden lg:block px-3">高速开发与交付</div>
+          <button
+            onClick={() => setActiveTab("global-investment-news")}
+            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all w-full text-left whitespace-nowrap cursor-pointer ${
+              activeTab === "global-investment-news"
+                ? "bg-[#1A1A1A] text-white shadow-[4px_4px_0px_rgba(0,0,0,0.15)]"
+                : "text-[#1A1A1A]/70 hover:text-[#1A1A1A] hover:bg-[#EFECE8]"
+            }`}
+          >
+            <Globe className="w-4 h-4 shrink-0 text-red-600 animate-pulse" />
+            <span className="font-bold text-red-600">全球投研资讯 (AI要点)</span>
+          </button>
+
+          <div className="h-px bg-[#1A1A1A]/10 my-4 hidden lg:block" />
+          <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-zinc-400 mb-3 hidden lg:block px-3">高速开发与交付</div>
 
           <button
             onClick={() => setActiveTab("fastapi")}
-            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg transition-all w-full text-left whitespace-nowrap border ${
+            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all w-full text-left whitespace-nowrap border cursor-pointer ${
               activeTab === "fastapi"
-                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                : "text-zinc-300 hover:text-zinc-100 border-zinc-800 bg-zinc-900/20"
+                ? "bg-white text-[#1A1A1A] border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A]"
+                : "text-[#1A1A1A]/80 hover:text-[#1A1A1A] border border-[#1A1A1A]/30 bg-white/50 hover:bg-[#EFECE8]"
             }`}
           >
-            <Server className="w-4 h-4 shrink-0 text-emerald-400 animate-pulse" />
+            <Server className="w-4 h-4 shrink-0 text-[#1A1A1A] animate-pulse" />
             <span className="font-semibold">FastAPI/Railway 部署包</span>
           </button>
         </aside>
 
         {/* MAIN VISUAL AREA */}
-        <main className="flex-1 min-w-0 bg-zinc-900/40 rounded-xl border border-zinc-800 p-6 shadow-2xl relative overflow-hidden">
+        <main className="flex-1 min-w-0 bg-[#F9F8F6] rounded-xl border-[1.5px] border-[#1A1A1A] p-6 shadow-[8px_8px_0px_#1A1A1A] relative overflow-hidden">
           
           <AnimatePresence mode="wait">
             
@@ -544,29 +674,29 @@ export default function App() {
                 className="space-y-6"
               >
                 <div>
-                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-lg font-serif font-semibold text-[#1A1A1A] flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-[#1A1A1A]" />
                     行情K线走势与估值收敛
                   </h3>
-                  <p className="text-xs text-zinc-400 mt-1">
+                  <p className="text-xs text-zinc-500 mt-1">
                     集成腾讯实时股票接口与百度K线，并附带 MA5/10/20 计算。
                   </p>
                 </div>
 
-                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80">
+                <div className="bg-white p-4 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A]">
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={activeStockMock.kline}>
                         <defs>
                           <linearGradient id="priceG" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="#1A1A1A" stopOpacity={0.15}/>
+                            <stop offset="95%" stopColor="#1A1A1A" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
-                        <XAxis dataKey="date" stroke="#52525b" fontSize={11} tickLine={false} />
-                        <YAxis domain={["auto", "auto"]} stroke="#52525b" fontSize={11} tickLine={false} />
-                        <Tooltip contentStyle={{ backgroundColor: "#18181b", borderColor: "#27272a", color: "#f4f4f5" }} />
-                        <Area type="monotone" dataKey="price" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#priceG)" name="价格" />
+                        <XAxis dataKey="date" stroke="#1A1A1A" fontSize={11} tickLine={false} />
+                        <YAxis domain={["auto", "auto"]} stroke="#1A1A1A" fontSize={11} tickLine={false} />
+                        <Tooltip contentStyle={{ backgroundColor: "#FAF9F6", borderColor: "#1A1A1A", color: "#1A1A1A" }} />
+                        <Area type="monotone" dataKey="price" stroke="#1A1A1A" strokeWidth={2} fillOpacity={1} fill="url(#priceG)" name="价格" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -574,44 +704,42 @@ export default function App() {
 
                 {/* ADVANCED VALUATION CARD */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800">
-                    <h4 className="text-xs font-semibold text-white uppercase tracking-wider text-zinc-400">PEG 模型动态评估</h4>
+                  <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/40">
+                    <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">PEG 模型动态评估</h4>
                     <div className="mt-4 space-y-3">
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-zinc-400">前向预期 PE (PE_fwd)</span>
-                        <span className="font-mono text-zinc-200">{activeStockMock.valuation.pe_fwd}x</span>
+                        <span className="text-[#1A1A1A]/70">前向预期 PE (PE_fwd)</span>
+                        <span className="font-mono text-[#1A1A1A] font-medium">{activeStockMock.valuation.pe_fwd}x</span>
                       </div>
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-zinc-400">预期盈利增速 (CAGR)</span>
-                        <span className="font-mono text-emerald-400 font-semibold">+{activeStockMock.valuation.cagr}%</span>
+                        <span className="text-[#1A1A1A]/70">预期盈利增速 (CAGR)</span>
+                        <span className="font-mono text-red-600 font-bold">+{activeStockMock.valuation.cagr}%</span>
                       </div>
-                      <div className="h-px bg-zinc-800 my-2" />
+                      <div className="h-px bg-[#1A1A1A]/10 my-2" />
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-zinc-400">计算 PEG 值</span>
-                        <span className={`font-mono font-bold text-sm px-2 py-0.5 rounded ${
-                          activeStockMock.valuation.peg < 1.0 ? "bg-emerald-500/10 text-emerald-400" : "bg-yellow-500/10 text-yellow-500"
-                        }`}>
+                        <span className="text-[#1A1A1A]/70">计算 PEG 值</span>
+                        <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-[#1A1A1A] text-white">
                           {activeStockMock.valuation.peg}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800">
-                    <h4 className="text-xs font-semibold text-white uppercase tracking-wider text-zinc-400">估值消化压力测试</h4>
+                  <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/40">
+                    <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">估值消化压力测试</h4>
                     <div className="mt-4 space-y-3">
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-zinc-400">目标合理 PE 锚点</span>
-                        <span className="font-mono text-zinc-200">30.0x</span>
+                        <span className="text-[#1A1A1A]/70">目标合理 PE 锚点</span>
+                        <span className="font-mono text-[#1A1A1A] font-medium">30.0x</span>
                       </div>
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-zinc-400">消化至目标 PE 年限</span>
-                        <span className="font-mono text-zinc-200 font-semibold">{activeStockMock.valuation.digest_years} 年</span>
+                        <span className="text-[#1A1A1A]/70">消化至目标 PE 年限</span>
+                        <span className="font-mono text-[#1A1A1A] font-bold">{activeStockMock.valuation.digest_years} 年</span>
                       </div>
-                      <div className="h-px bg-zinc-800 my-2" />
+                      <div className="h-px bg-[#1A1A1A]/10 my-2" />
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-zinc-400">评级模型</span>
-                        <span className="font-mono text-xs text-zinc-400 font-semibold uppercase">{activeStockMock.valuation.rating}</span>
+                        <span className="text-[#1A1A1A]/70">评级模型</span>
+                        <span className="font-mono text-[10px] text-white bg-[#1A1A1A] px-2 py-0.5 rounded font-semibold uppercase">{activeStockMock.valuation.rating}</span>
                       </div>
                     </div>
                   </div>
@@ -629,47 +757,47 @@ export default function App() {
                 className="space-y-6"
               >
                 <div>
-                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-lg font-serif font-semibold text-[#1A1A1A] flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-[#1A1A1A]" />
                     研报层 & 一致预期
                   </h3>
-                  <p className="text-xs text-zinc-400 mt-1">
+                  <p className="text-xs text-zinc-500 mt-1 font-medium">
                     同花顺盈利一致预期（Consensus Estimates）以及东财深度研报索引。
                   </p>
                 </div>
 
                 {/* CONSENSUS FORECAST CHART */}
-                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80">
-                  <h4 className="text-xs font-semibold text-zinc-400 mb-4 uppercase tracking-wider">未来三期 EPS 预测一致预期 (元)</h4>
+                <div className="bg-white p-4 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A]">
+                  <h4 className="text-xs font-bold text-[#1A1A1A] mb-4 uppercase tracking-widest">未来三期 EPS 预测一致预期 (元)</h4>
                   <div className="h-56">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={activeStockMock.forecast}>
-                        <XAxis dataKey="年度" stroke="#52525b" fontSize={11} />
-                        <YAxis stroke="#52525b" fontSize={11} />
-                        <Tooltip contentStyle={{ backgroundColor: "#18181b", borderColor: "#27272a" }} />
+                        <XAxis dataKey="年度" stroke="#1A1A1A" fontSize={11} />
+                        <YAxis stroke="#1A1A1A" fontSize={11} />
+                        <Tooltip contentStyle={{ backgroundColor: "#FAF9F6", borderColor: "#1A1A1A", color: "#1A1A1A" }} />
                         <Legend />
-                        <Bar dataKey="最小值" fill="#ef4444" opacity={0.6} name="悲观EPS" />
-                        <Bar dataKey="均值" fill="#10b981" name="一致预期" />
-                        <Bar dataKey="最大值" fill="#3b82f6" opacity={0.6} name="乐观EPS" />
+                        <Bar dataKey="最小值" fill="#E11D48" opacity={0.6} name="悲观EPS" />
+                        <Bar dataKey="均值" fill="#1A1A1A" name="一致预期" />
+                        <Bar dataKey="最大值" fill="#2563EB" opacity={0.6} name="乐观EPS" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
                 {/* REPORT LISTS */}
-                <div className="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800 space-y-3">
-                  <h4 className="text-xs font-semibold text-white">东财深度评级研报 (实时)</h4>
-                  <div className="divide-y divide-zinc-800 text-xs">
+                <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/40 space-y-3">
+                  <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">东财深度评级研报 (实时)</h4>
+                  <div className="divide-y divide-[#1A1A1A]/10 text-xs">
                     <div className="py-2.5 flex justify-between items-center">
-                      <span className="text-zinc-300 font-medium">【深度价值研究】业绩拐点确立，核心部件进入规模放量期</span>
+                      <span className="text-[#1A1A1A] font-serif font-medium hover:underline cursor-pointer">【深度价值研究】业绩拐点确立，核心部件进入规模放量期</span>
                       <span className="text-[10px] text-zinc-500 font-mono">东吴证券 / 06-25</span>
                     </div>
                     <div className="py-2.5 flex justify-between items-center">
-                      <span className="text-zinc-300 font-medium">【行业跟踪】估值消化压力基本缓解，高壁垒与卡位优势依然显著</span>
+                      <span className="text-[#1A1A1A] font-serif font-medium hover:underline cursor-pointer">【行业跟踪】估值消化压力基本缓解，高壁垒与卡位优势依然显著</span>
                       <span className="text-[10px] text-zinc-500 font-mono">中信证券 / 06-22</span>
                     </div>
                     <div className="py-2.5 flex justify-between items-center">
-                      <span className="text-zinc-300 font-medium">盈利预测向上微调，维持“买入”和“增持”评级</span>
+                      <span className="text-[#1A1A1A] font-serif font-medium hover:underline cursor-pointer">盈利预测向上微调，维持“买入”和“增持”评级</span>
                       <span className="text-[10px] text-zinc-500 font-mono">华泰证券 / 06-18</span>
                     </div>
                   </div>
@@ -687,60 +815,60 @@ export default function App() {
                 className="space-y-6"
               >
                 <div>
-                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                    <Radio className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-lg font-serif font-semibold text-[#1A1A1A] flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-[#1A1A1A]" />
                     信号层 & 题材板块归因
                   </h3>
-                  <p className="text-xs text-zinc-400 mt-1">
+                  <p className="text-xs text-zinc-500 mt-1 font-medium">
                     当日龙头股（ths reason tags）和东财个股概念所属。
                   </p>
                 </div>
 
                 {/* SECTOR BOARD CHIPS */}
-                <div className="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800">
-                  <h4 className="text-xs font-semibold text-white">概念与行业板块所属 (实时东财 slist)</h4>
+                <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/40">
+                  <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">概念与行业板块所属 (实时东财 slist)</h4>
                   <div className="flex flex-wrap gap-2 mt-3">
                     {liveBlocks?.concept_tags ? (
                       liveBlocks.concept_tags.slice(0, 10).map((tag: string, i: number) => (
                         <span
                           key={i}
-                          className="px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono"
+                          className="px-2.5 py-1 rounded bg-white text-[#1A1A1A] border border-[#1A1A1A]/30 text-xs font-mono shadow-[2px_2px_0px_rgba(0,0,0,0.15)]"
                         >
                           {tag}
                         </span>
                       ))
                     ) : (
                       <>
-                        <span className="px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 text-xs font-mono">机器人概念</span>
-                        <span className="px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 text-xs font-mono">科创50</span>
-                        <span className="px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 text-xs font-mono">智能制造</span>
-                        <span className="px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 text-xs font-mono">核心零部件</span>
+                        <span className="px-2.5 py-1 rounded bg-white text-[#1A1A1A] border border-[#1A1A1A]/30 text-xs font-mono shadow-[2px_2px_0px_rgba(0,0,0,0.15)]">机器人概念</span>
+                        <span className="px-2.5 py-1 rounded bg-white text-[#1A1A1A] border border-[#1A1A1A]/30 text-xs font-mono shadow-[2px_2px_0px_rgba(0,0,0,0.15)]">科创50</span>
+                        <span className="px-2.5 py-1 rounded bg-white text-[#1A1A1A] border border-[#1A1A1A]/30 text-xs font-mono shadow-[2px_2px_0px_rgba(0,0,0,0.15)]">智能制造</span>
+                        <span className="px-2.5 py-1 rounded bg-white text-[#1A1A1A] border border-[#1A1A1A]/30 text-xs font-mono shadow-[2px_2px_0px_rgba(0,0,0,0.15)]">核心零部件</span>
                       </>
                     )}
                   </div>
                 </div>
 
                 {/* LEADING REASONS */}
-                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80">
-                  <h4 className="text-xs font-semibold text-zinc-400 mb-3">同花顺当日强势龙头题材归因归纳 (同花顺热点)</h4>
+                <div className="bg-white p-4 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A]">
+                  <h4 className="text-xs font-bold text-[#1A1A1A] mb-3 uppercase tracking-widest">同花顺当日强势龙头题材归因归纳 (同花顺热点)</h4>
                   <div className="space-y-3">
-                    <div className="bg-zinc-900/40 p-3 rounded-lg border border-zinc-800 flex justify-between items-center text-xs">
+                    <div className="bg-[#EFECE8] p-3 rounded-lg border border-[#1A1A1A]/30 flex justify-between items-center text-xs shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
                       <div>
-                        <span className="font-semibold text-zinc-200">胜宏科技 (300476)</span>
-                        <p className="text-[10px] text-zinc-500 mt-1">
-                          归因标签: <b className="text-emerald-400 font-semibold">英伟达算力+服务器多层板+PCB龙头</b>
+                        <span className="font-bold text-[#1A1A1A]">胜宏科技 (300476)</span>
+                        <p className="text-[10px] text-zinc-600 mt-1">
+                          归因标签: <b className="text-[#1A1A1A] font-bold">英伟达算力+服务器多层板+PCB龙头</b>
                         </p>
                       </div>
-                      <span className="text-red-500 font-mono font-bold">+10.02%</span>
+                      <span className="text-red-600 font-mono font-bold">+10.02%</span>
                     </div>
-                    <div className="bg-zinc-900/40 p-3 rounded-lg border border-zinc-800 flex justify-between items-center text-xs">
+                    <div className="bg-[#EFECE8] p-3 rounded-lg border border-[#1A1A1A]/30 flex justify-between items-center text-xs shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
                       <div>
-                        <span className="font-semibold text-zinc-200">绿的谐波 (688017)</span>
-                        <p className="text-[10px] text-zinc-500 mt-1">
-                          归因标签: <b className="text-emerald-400 font-semibold">人形机器人+行星滚柱丝杠+特斯拉供应链</b>
+                        <span className="font-bold text-[#1A1A1A]">绿的谐波 (688017)</span>
+                        <p className="text-[10px] text-zinc-600 mt-1">
+                          归因标签: <b className="text-[#1A1A1A] font-bold">人形机器人+行星滚柱丝杠+特斯拉供应链</b>
                         </p>
                       </div>
-                      <span className="text-red-500 font-mono font-bold">+12.45%</span>
+                      <span className="text-red-600 font-mono font-bold">+12.45%</span>
                     </div>
                   </div>
                 </div>
@@ -757,25 +885,25 @@ export default function App() {
                 className="space-y-6"
               >
                 <div>
-                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                    <Coins className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-lg font-serif font-semibold text-[#1A1A1A] flex items-center gap-2">
+                    <Coins className="w-4 h-4 text-[#1A1A1A]" />
                     资金筹码层 & 两融季度数据
                   </h3>
-                  <p className="text-xs text-zinc-400 mt-1">
+                  <p className="text-xs text-zinc-500 mt-1 font-medium">
                     监控季度股东户数增减、筹码集中度（Concentration）以及历史现金派息详情。
                   </p>
                 </div>
 
                 {/* SHAREHOLDER CHANGE */}
-                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80">
-                  <h4 className="text-xs font-semibold text-zinc-400 mb-4 uppercase tracking-wider">季度股东户数变化与环比增减</h4>
+                <div className="bg-white p-4 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A]">
+                  <h4 className="text-xs font-bold text-[#1A1A1A] mb-4 uppercase tracking-widest">季度股东户数变化与环比增减</h4>
                   <div className="h-56">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={activeStockMock.holders}>
-                        <XAxis dataKey="date" stroke="#52525b" fontSize={11} />
-                        <YAxis stroke="#52525b" fontSize={11} />
-                        <Tooltip contentStyle={{ backgroundColor: "#18181b", borderColor: "#27272a" }} />
-                        <Bar dataKey="holder_num" fill="#3b82f6" name="股东户数" />
+                        <XAxis dataKey="date" stroke="#1A1A1A" fontSize={11} />
+                        <YAxis stroke="#1A1A1A" fontSize={11} />
+                        <Tooltip contentStyle={{ backgroundColor: "#FAF9F6", borderColor: "#1A1A1A", color: "#1A1A1A" }} />
+                        <Bar dataKey="holder_num" fill="#1A1A1A" name="股东户数" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -783,32 +911,32 @@ export default function App() {
 
                 {/* DIVIDENDS AND FINANCING */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800">
-                    <h4 className="text-xs font-semibold text-white">历史派红分红实力</h4>
+                  <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/40">
+                    <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">历史派红分红实力</h4>
                     <div className="mt-3 space-y-2 text-xs">
                       {activeStockMock.dividends.map((div: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center py-1.5 border-b border-zinc-800/60">
-                          <span className="font-mono text-zinc-400">{div.date}</span>
-                          <span className="text-zinc-200 font-semibold">10派 {div.bonus_rmb * 10}元</span>
+                        <div key={idx} className="flex justify-between items-center py-1.5 border-b border-[#1A1A1A]/10">
+                          <span className="font-mono text-zinc-600">{div.date}</span>
+                          <span className="text-[#1A1A1A] font-bold">10派 {div.bonus_rmb * 10}元</span>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  <div className="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800">
-                    <h4 className="text-xs font-semibold text-white">融资融券基本面指标</h4>
+                  <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/40">
+                    <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">融资融券基本面指标</h4>
                     <div className="mt-3 space-y-3 text-xs">
                       <div className="flex justify-between items-center">
-                        <span className="text-zinc-400">融资余额</span>
-                        <span className="font-mono text-zinc-200">14.8 亿元</span>
+                        <span className="text-zinc-600">融资余额</span>
+                        <span className="font-mono text-[#1A1A1A] font-bold">14.8 亿元</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-zinc-400">融券余额</span>
-                        <span className="font-mono text-zinc-200">2.4 亿元</span>
+                        <span className="text-zinc-600">融券余额</span>
+                        <span className="font-mono text-[#1A1A1A] font-bold">2.4 亿元</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-zinc-400">最新净买入额</span>
-                        <span className="font-mono text-emerald-400 font-semibold">+1450 万元</span>
+                        <span className="text-zinc-600">最新净买入额</span>
+                        <span className="font-mono text-red-600 font-bold">+1450 万元</span>
                       </div>
                     </div>
                   </div>
@@ -826,11 +954,11 @@ export default function App() {
                 className="space-y-6"
               >
                 <div>
-                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                    <Newspaper className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-lg font-serif font-semibold text-[#1A1A1A] flex items-center gap-2">
+                    <Newspaper className="w-4 h-4 text-[#1A1A1A]" />
                     新闻资讯 & 巨潮披露公告
                   </h3>
-                  <p className="text-xs text-zinc-400 mt-1">
+                  <p className="text-xs text-zinc-500 mt-1 font-medium">
                     个股相关的新闻快讯与巨潮资讯（CNInfo）官方披露监管公告。
                   </p>
                 </div>
@@ -838,46 +966,304 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* STOCK NEWS */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">个股实时资讯 (东财)</h4>
+                    <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-widest">个股实时资讯 (东财)</h4>
                     <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
                       {liveNews && liveNews.length > 0 ? (
                         liveNews.map((news, i) => (
-                          <div key={i} className="bg-zinc-950 p-3 rounded-lg border border-zinc-800 text-xs space-y-1">
-                            <span className="text-zinc-400 text-[10px] font-mono">{news.time} | {news.source}</span>
-                            <h5 className="font-semibold text-zinc-200 leading-snug">{news.title}</h5>
-                            <p className="text-zinc-500 text-[10px] line-clamp-2">{news.content}</p>
+                          <div key={i} className="bg-white p-3.5 rounded-lg border border-[#1A1A1A]/30 text-xs space-y-1 shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
+                            <span className="text-zinc-500 text-[10px] font-mono">{news.time} | {news.source}</span>
+                            <h5 className="font-serif font-bold text-[#1A1A1A] leading-snug hover:underline cursor-pointer">{news.title}</h5>
+                            <p className="text-zinc-600 text-[10px] line-clamp-2">{news.content}</p>
                           </div>
                         ))
                       ) : (
-                        <div className="text-zinc-600 text-xs py-4">无个股资讯。</div>
+                        <div className="text-zinc-500 text-xs py-4 font-medium">无个股资讯。</div>
                       )}
                     </div>
                   </div>
 
                   {/* REGULATORY ANNOUNCEMENTS */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">官方披露公告 (巨潮)</h4>
+                    <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-widest">官方披露公告 (巨潮)</h4>
                     <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
                       {announcements && announcements.length > 0 ? (
                         announcements.map((ann, i) => (
-                          <div key={i} className="bg-zinc-950 p-3 rounded-lg border border-zinc-800 text-xs space-y-1">
-                            <span className="text-zinc-400 text-[10px] font-mono">{ann.date} | {ann.type}</span>
-                            <h5 className="font-semibold text-zinc-200 leading-snug">{ann.title}</h5>
+                          <div key={i} className="bg-white p-3.5 rounded-lg border border-[#1A1A1A]/30 text-xs space-y-1 shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
+                            <span className="text-zinc-500 text-[10px] font-mono">{ann.date} | {ann.type}</span>
+                            <h5 className="font-serif font-bold text-[#1A1A1A] leading-snug hover:underline cursor-pointer">{ann.title}</h5>
                             <a
                               href={ann.url}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-emerald-400 hover:text-emerald-300 text-[10px] inline-flex items-center gap-1 mt-1 font-mono"
+                              className="text-red-700 hover:text-red-900 text-[10px] inline-flex items-center gap-1 mt-1 font-mono font-bold hover:underline"
                             >
                               巨潮 PDF 原件 <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           </div>
                         ))
                       ) : (
-                        <div className="text-zinc-600 text-xs py-4">无最新披露公告。</div>
+                        <div className="text-zinc-500 text-xs py-4 font-medium">无最新披露公告。</div>
                       )}
                     </div>
                   </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB: GLOBAL INVESTMENT NEWS */}
+            {activeTab === "global-investment-news" && (
+              <motion.div
+                key="global-investment-news"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {/* Header block with metadata/refresh */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1A1A1A]/20 pb-4">
+                  <div>
+                    <h3 className="text-xl font-serif font-bold text-[#1A1A1A] flex items-center gap-2">
+                      <Globe className="w-5 h-5 text-red-600 shrink-0" />
+                      全球投研资讯 & AI 决策要点
+                    </h3>
+                    <p className="text-xs text-zinc-500 mt-1 font-medium">
+                      多维全球科技赛道实时 RSS 订阅资讯，由 <span className="font-semibold text-red-600">Gemini 3.5 Flash</span> 极速驱动中文翻译、今日要点提炼与智能 refs 定位跳转。
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                    {globalInvestmentData?.generated_at && (
+                      <span className="text-[10px] text-zinc-400 font-mono bg-[#EFECE8] px-2 py-1 rounded border border-zinc-200">
+                        生成时间: {globalInvestmentData.generated_at}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => handleFullRefreshFeeds()}
+                      disabled={globalInvestmentLoading}
+                      className="px-3 py-1.5 bg-white border border-[#1A1A1A]/30 text-xs font-semibold rounded-lg hover:bg-[#EFECE8] active:translate-y-0.5 transition-all text-[#1A1A1A] flex items-center gap-1 cursor-pointer shadow-[2px_2px_0px_#1A1A1A]"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${globalInvestmentLoading ? "animate-spin" : ""}`} />
+                      {globalInvestmentLoading ? "全网抓取中..." : "刷新全网 RSS 源"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Error Banner */}
+                {globalInvestmentError && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 p-3.5 rounded-lg text-xs font-medium relative pr-10">
+                    <p>{globalInvestmentError}</p>
+                    <button 
+                      onClick={() => setGlobalInvestmentError(null)}
+                      className="absolute right-3 top-3 text-red-500 hover:text-red-700 font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {/* Main panel - Left side: 12 Sectors selection, Right side: Selected Sector Feeds & Gemini digests */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  
+                  {/* Left Column (Sector Selection): 12 sectors, beautifully colored */}
+                  <div className="lg:col-span-3 space-y-2">
+                    <div className="text-[10px] uppercase tracking-[0.15em] font-bold text-zinc-400 mb-2 px-1">行业赛道 / Sectors</div>
+                    {globalInvestmentLoading && !globalInvestmentData ? (
+                      <div className="space-y-2">
+                        {[...Array(6)].map((_, i) => (
+                          <div key={i} className="h-9 bg-zinc-200 rounded animate-pulse" />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 lg:grid-cols-1 gap-1.5">
+                        {globalInvestmentData?.industries?.map((ind: any) => {
+                          const isSelected = selectedSector === ind.key;
+                          return (
+                            <button
+                              key={ind.key}
+                              onClick={() => setSelectedSector(ind.key)}
+                              className={`flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-lg transition-all border text-left cursor-pointer ${
+                                isSelected
+                                  ? "bg-white text-[#1A1A1A] shadow-[3px_3px_0px_#1A1A1A]"
+                                  : "text-zinc-600 bg-transparent border-transparent hover:bg-[#EFECE8]"
+                              }`}
+                              style={{ borderColor: isSelected ? ind.accent : 'transparent' }}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span 
+                                  className="w-2.5 h-2.5 rounded-full shrink-0" 
+                                  style={{ backgroundColor: ind.accent }}
+                                />
+                                <span className="truncate">{ind.name}</span>
+                              </div>
+                              <span className="font-mono text-[10px] text-zinc-400 shrink-0">
+                                {ind.items?.length || 0}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right Column (Sectors News Feed & AI Digest) */}
+                  <div className="lg:col-span-9 space-y-6">
+                    {(() => {
+                      const activeInd = globalInvestmentData?.industries?.find((ind: any) => ind.key === selectedSector);
+                      if (globalInvestmentLoading && !globalInvestmentData) {
+                        return (
+                          <div className="text-center py-12">
+                            <RefreshCw className="w-8 h-8 animate-spin mx-auto text-zinc-400 mb-3" />
+                            <p className="text-sm text-zinc-500 font-medium">正在读取全行业全球投研资讯数据...</p>
+                          </div>
+                        );
+                      }
+                      if (!activeInd) {
+                        return (
+                          <div className="bg-white p-8 rounded-xl border border-[#1A1A1A]/10 text-center">
+                            <p className="text-sm text-zinc-500 font-medium">请点击左侧列表，选择您想要查看的赛道栏目。</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-6">
+                          
+                          {/* AI Today's Highlights/Digest Card */}
+                          <div 
+                            className="bg-white rounded-xl border-[1.5px] border-[#1A1A1A] p-5 shadow-[4px_4px_0px_#1A1A1A] relative overflow-hidden"
+                            style={{ borderLeft: `5px solid ${activeInd.accent}` }}
+                          >
+                            <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+                              <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-widest flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-yellow-600 animate-bounce" />
+                                {activeInd.name} · AI 今日投研要点提炼
+                              </h4>
+                              
+                              <button
+                                onClick={() => handleDigestSector(activeInd.key)}
+                                disabled={sectorDigesting === activeInd.key}
+                                className="px-3 py-1 bg-[#1A1A1A] text-white text-[10px] font-bold rounded hover:opacity-90 active:translate-y-0.5 transition-all flex items-center gap-1 disabled:opacity-50 cursor-pointer shadow-[2px_2px_0px_rgba(0,0,0,0.15)] font-serif"
+                              >
+                                <Sparkles className={`w-3 h-3 ${sectorDigesting === activeInd.key ? "animate-spin" : ""}`} />
+                                {sectorDigesting === activeInd.key ? "正在提炼中..." : "✨ 用 Gemini 3.5 提炼本栏目要点"}
+                              </button>
+                            </div>
+
+                            {activeInd.points && activeInd.points.length > 0 ? (
+                              <ul className="space-y-3">
+                                {activeInd.points.map((pt: any, idx: number) => (
+                                  <li key={idx} className="flex items-start gap-2.5 text-xs text-zinc-800 leading-relaxed">
+                                    <span 
+                                      className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" 
+                                      style={{ backgroundColor: activeInd.accent }}
+                                    />
+                                    <div className="flex-1">
+                                      <span>{pt.t}</span>
+                                      {pt.url && (
+                                        <a 
+                                          href={pt.url} 
+                                          target="_blank" 
+                                          rel="noreferrer" 
+                                          className="ml-2 inline-flex items-center gap-0.5 font-bold hover:underline"
+                                          style={{ color: activeInd.accent }}
+                                        >
+                                          定位原文 <ExternalLink className="w-2.5 h-2.5" />
+                                        </a>
+                                      )}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div className="text-center py-6 bg-zinc-50 rounded-lg border border-dashed border-[#1A1A1A]/10">
+                                <p className="text-xs text-zinc-500 font-medium mb-1">本栏目暂未生成 AI 今日要点或更新了全新源数据</p>
+                                <button
+                                  onClick={() => handleDigestSector(activeInd.key)}
+                                  className="text-xs font-bold text-red-600 hover:underline flex items-center gap-1 mx-auto mt-2 cursor-pointer"
+                                >
+                                  点此一键召唤 Gemini AI 提炼 ⚡
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* RSS News Feed items */}
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between px-1">
+                              <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-widest">
+                                实时全球投研源列表
+                              </h4>
+                              <span className="text-[10px] text-zinc-400 font-mono">
+                                抓取条数: {activeInd.items?.length || 0}
+                              </span>
+                            </div>
+
+                            <div className="space-y-3">
+                              {activeInd.items && activeInd.items.length > 0 ? (
+                                activeInd.items.map((news: any, idx: number) => (
+                                  <div 
+                                    key={idx} 
+                                    className="bg-white p-4 rounded-xl border border-[#1A1A1A]/30 text-xs space-y-2 hover:border-[#1A1A1A] hover:shadow-[3px_3px_0px_#1A1A1A] transition-all"
+                                  >
+                                    <div className="flex items-center justify-between flex-wrap gap-2">
+                                      <span className="text-[10px] font-mono text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded font-semibold">
+                                        {news.source}
+                                      </span>
+                                      <span className="text-[10px] font-mono text-zinc-500">
+                                        {news.time}
+                                      </span>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                      {news.zh ? (
+                                        <>
+                                          <h5 className="font-serif font-bold text-sm text-[#1A1A1A] leading-snug">
+                                            {news.zh}
+                                          </h5>
+                                          <p className="text-zinc-500 text-[10px] italic leading-tight">
+                                            原文: {news.title}
+                                          </p>
+                                        </>
+                                      ) : (
+                                        <h5 className="font-serif font-bold text-sm text-[#1A1A1A] leading-snug">
+                                          {news.title}
+                                        </h5>
+                                      )}
+                                    </div>
+
+                                    {news.summary && (
+                                      <p className="text-zinc-600 text-[11px] leading-relaxed line-clamp-3 bg-zinc-50/50 p-2 rounded border border-zinc-100">
+                                        {news.summary}
+                                      </p>
+                                    )}
+
+                                    {news.url && (
+                                      <div className="pt-1 flex justify-end">
+                                        <a
+                                          href={news.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-[10px] font-bold text-zinc-700 hover:text-[#1A1A1A] flex items-center gap-1 hover:underline font-mono"
+                                        >
+                                          阅读原网站 <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-center py-12 bg-white rounded-xl border border-dashed border-zinc-200">
+                                  <p className="text-xs text-zinc-500 font-medium">该赛道暂无最新资讯。您可以尝试点击上方的“刷新全网RSS源”按钮。</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                 </div>
               </motion.div>
             )}
@@ -891,113 +1277,289 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+                {/* FASTAPI TABS BANNER */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1A1A1A]/20 pb-4">
                   <div>
-                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                      <Server className="w-5 h-5 text-emerald-400" />
-                      Python FastAPI 高性能后端部署包
+                    <h3 className="text-lg font-serif font-semibold text-[#1A1A1A] flex items-center gap-2">
+                      <Server className="w-5 h-5 text-[#1A1A1A]" />
+                      高性能金融计算中台与云端部署
                     </h3>
-                    <p className="text-xs text-zinc-400 mt-1">
-                      严格遵循分层架构设计模式，完美适配 Railway 一键构建部署，内嵌 28 个端点。
+                    <p className="text-xs text-zinc-500 mt-1 font-medium">
+                      多源量化链路（腾讯、百度、同花顺、巨潮），支持一键容器部署与第三方智能体集成。
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full flex items-center gap-1.5">
-                      <TermIcon className="w-3 h-3 animate-pulse" />
-                      Railway Ready
-                    </span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setFastApiSubTab("endpoints")}
+                      className={`px-4 py-2 font-serif font-bold text-xs rounded transition-all cursor-pointer border-[1.5px] border-[#1A1A1A] ${
+                        fastApiSubTab === "endpoints"
+                          ? "bg-[#1A1A1A] text-white shadow-[2px_2px_0px_rgba(0,0,0,0.15)]"
+                          : "bg-white text-[#1A1A1A] hover:bg-[#EFECE8] shadow-[2px_2px_0px_#1A1A1A]"
+                      }`}
+                    >
+                      后端接口文档一览
+                    </button>
+                    <button
+                      onClick={() => setFastApiSubTab("prompt")}
+                      className={`px-4 py-2 font-serif font-bold text-xs rounded transition-all cursor-pointer border-[1.5px] border-[#1A1A1A] ${
+                        fastApiSubTab === "prompt"
+                          ? "bg-[#1A1A1A] text-white shadow-[2px_2px_0px_rgba(0,0,0,0.15)]"
+                          : "bg-white text-[#1A1A1A] hover:bg-[#EFECE8] shadow-[2px_2px_0px_#1A1A1A]"
+                      }`}
+                    >
+                      智能分析提示词 (Prompt)
+                    </button>
+                    <button
+                      onClick={() => setFastApiSubTab("files")}
+                      className={`px-4 py-2 font-serif font-bold text-xs rounded transition-all cursor-pointer border-[1.5px] border-[#1A1A1A] ${
+                        fastApiSubTab === "files"
+                          ? "bg-[#1A1A1A] text-white shadow-[2px_2px_0px_rgba(0,0,0,0.15)]"
+                          : "bg-white text-[#1A1A1A] hover:bg-[#EFECE8] shadow-[2px_2px_0px_#1A1A1A]"
+                      }`}
+                    >
+                      部署项目代码库
+                    </button>
                   </div>
                 </div>
 
-                {/* THE CODEBASE FILE EXPLORER */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[500px]">
-                  
-                  {/* DIRECTORY TREE */}
-                  <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800/80 overflow-y-auto flex flex-col h-full">
-                    <div className="text-[10px] uppercase tracking-wider font-bold text-zinc-500 mb-2 px-2">
-                      后端项目文件目录
-                    </div>
-                    <div className="flex-1 space-y-0.5">
-                      {fastApiFiles.length > 0 ? (
-                        renderFileTree(fastApiFiles)
-                      ) : (
-                        <div className="text-zinc-600 text-xs py-4 px-2">正在扫描 `/python-fastapi` 目录...</div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* CODE PREVIEWER */}
-                  <div className="md:col-span-2 bg-zinc-950 rounded-xl border border-zinc-800 flex flex-col h-full overflow-hidden">
-                    <div className="bg-zinc-900 px-4 py-2 flex items-center justify-between border-b border-zinc-800 shrink-0">
-                      <span className="text-xs font-mono text-zinc-400 flex items-center gap-1.5">
-                        <Code className="w-3.5 h-3.5 text-emerald-400" />
-                        {selectedFile?.name || "代码预览器"}
-                      </span>
-                      {selectedFile && (
-                        <button
-                          onClick={handleCopyCode}
-                          className="text-[10px] font-semibold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-750 px-2.5 py-1 rounded border border-zinc-750 flex items-center gap-1 transition-all"
-                        >
-                          {copiedFile ? (
-                            <>
-                              <Check className="w-3 h-3 text-emerald-400" />
-                              已复制
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3 h-3" />
-                              复制代码
-                            </>
-                          )}
-                        </button>
-                      )}
+                {/* VIEW 1: COMPLETE ENDPOINT REGISTRY */}
+                {fastApiSubTab === "endpoints" && (
+                  <div className="space-y-6">
+                    {/* INFO HEADER */}
+                    <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">
+                          后端 RESTful 极速端点注册表 (共 32 个)
+                        </h4>
+                        <p className="text-[11px] text-zinc-600 leading-relaxed max-w-3xl">
+                          以下为当前 Python FastAPI 后端服务在云端实际注册的 32 个 RESTful 数据和计算接口。数据涵盖实时盘口、多周期K线、券商一致预期、行业与题材归因、主力筹码及高级 PEG 估值算法。支持其他终端进行一键调用。
+                        </p>
+                      </div>
+                      
+                      {/* INTERACTIVE FILTER BAR */}
+                      <div className="relative w-full md:w-72 shrink-0">
+                        <Search className="w-3.5 h-3.5 text-[#1A1A1A] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={endpointSearchQuery}
+                          onChange={(e) => setEndpointSearchQuery(e.target.value)}
+                          placeholder="过滤检索接口 (如: market, peg)..."
+                          className="w-full bg-white pl-9 pr-4 py-2 text-xs font-mono border-[1.5px] border-[#1A1A1A] rounded shadow-[2px_2px_0px_#1A1A1A] focus:outline-none focus:ring-0 placeholder:text-zinc-400"
+                        />
+                      </div>
                     </div>
 
-                    <div className="flex-1 overflow-auto p-4 font-mono text-xs text-zinc-300 leading-relaxed bg-zinc-950 select-text">
-                      {selectedFile ? (
-                        <pre className="whitespace-pre">{selectedFile.content}</pre>
+                    {/* ENDPOINTS LISTING GRID */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {BACKEND_ENDPOINTS.filter((ep) => {
+                        const q = endpointSearchQuery.toLowerCase();
+                        return (
+                          ep.path.toLowerCase().includes(q) ||
+                          ep.desc.toLowerCase().includes(q) ||
+                          ep.category.toLowerCase().includes(q) ||
+                          ep.method.toLowerCase().includes(q)
+                        );
+                      }).length > 0 ? (
+                        BACKEND_ENDPOINTS.filter((ep) => {
+                          const q = endpointSearchQuery.toLowerCase();
+                          return (
+                            ep.path.toLowerCase().includes(q) ||
+                            ep.desc.toLowerCase().includes(q) ||
+                            ep.category.toLowerCase().includes(q) ||
+                            ep.method.toLowerCase().includes(q)
+                          );
+                        }).map((ep, idx) => (
+                          <div
+                            key={idx}
+                            className="bg-white p-4 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[3px_3px_0px_#1A1A1A] flex flex-col justify-between hover:shadow-[5px_5px_0px_#1A1A1A] transition-all"
+                          >
+                            <div className="space-y-2">
+                              {/* METHOD & CATEGORY */}
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-mono font-bold text-white bg-[#1A1A1A] px-2 py-0.5 rounded tracking-wider uppercase">
+                                  {ep.method}
+                                </span>
+                                <span className="text-[10px] font-serif font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                  {ep.category}
+                                </span>
+                              </div>
+
+                              {/* PATH */}
+                              <h5 className="font-mono font-bold text-xs text-[#1A1A1A] break-all select-all selection:bg-neutral-200">
+                                {ep.path}
+                              </h5>
+
+                              {/* DESCRIPTION */}
+                              <p className="text-zinc-600 text-[11px] leading-relaxed">
+                                {ep.desc}
+                              </p>
+                            </div>
+
+                            {/* QUERY PARAMETERS REQUIREMENT */}
+                            <div className="mt-4 pt-2.5 border-t border-dashed border-[#1A1A1A]/10 text-[10px] font-mono flex items-start gap-1">
+                              <span className="text-zinc-400 shrink-0 font-bold">参数:</span>
+                              <span className="text-[#1A1A1A] font-medium leading-relaxed">{ep.params}</span>
+                            </div>
+                          </div>
+                        ))
                       ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-zinc-600">
-                          <BookOpen className="w-8 h-8 mb-2 stroke-1" />
-                          <span>点击左侧树结构中的文件预览部署代码</span>
+                        <div className="col-span-full bg-white p-12 text-center border-[1.5px] border-dashed border-[#1A1A1A]/30 rounded-xl">
+                          <p className="text-zinc-400 text-xs font-medium">没有找到符合筛选条件的接口端点。</p>
                         </div>
                       )}
                     </div>
                   </div>
-                </div>
+                )}
 
-                {/* RAILWAY STEP-BY-STEP */}
-                <div className="bg-zinc-900/60 p-5 rounded-xl border border-zinc-800 space-y-4">
-                  <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <TermIcon className="w-4 h-4 text-emerald-400 animate-pulse" />
-                    云原生 Railway 极速部署三板斧
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                    <div className="bg-zinc-950 p-4 rounded-lg border border-zinc-850 space-y-2">
-                      <div className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold font-mono">1</div>
-                      <h5 className="font-semibold text-zinc-200">GitHub 推送代码</h5>
-                      <p className="text-zinc-500 text-[10px] leading-relaxed">
-                        将整个 `/python-fastapi` 里的文件推送到你新建的 GitHub 私有或公开仓库。
+                {/* VIEW 2: AI STOCK ANALYSIS PROMPT GENERATOR */}
+                {fastApiSubTab === "prompt" && (
+                  <div className="space-y-6">
+                    {/* DESCRIPTIVE BANNER */}
+                    <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/30 space-y-2">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">
+                          智能体/前端集成开发提示词 (A-Stock Integration Prompt Blueprint)
+                        </h4>
+                        <button
+                          onClick={handleCopyPrompt}
+                          className="px-3 py-1 bg-[#1A1A1A] text-white text-xs font-serif font-bold rounded border border-[#1A1A1A] hover:bg-neutral-800 transition-all flex items-center gap-1.5 cursor-pointer shadow-[2px_2px_0px_rgba(0,0,0,0.15)]"
+                        >
+                          {copiedPrompt ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              已成功复制提示词
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              一键复制开发提示词
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-zinc-600 leading-relaxed">
+                        此提示词（Prompt）完美总结了本系统前端的核心数据呈现与高级财务 PEG 估值分析模型，将其完整转译为一套高度模块化、具有明确设计规范和 API 绑定对齐说明的 **全栈开发蓝图 (Blueprint)**。你可以直接将本提示词拷贝给其他大语言模型（如 ChatGPT, Claude, Gemini）或开发工具，以便在任意开发平台（如 Vue, Python Streamlit）中无缝调用本中台服务开发出高保真的股票分析仪表盘！
                       </p>
                     </div>
 
-                    <div className="bg-zinc-950 p-4 rounded-lg border border-zinc-850 space-y-2">
-                      <div className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold font-mono">2</div>
-                      <h5 className="font-semibold text-zinc-200">Railway 绑定导入</h5>
-                      <p className="text-zinc-500 text-[10px] leading-relaxed">
-                        在 Railway 平台创建“New Project”，选择 “Deploy from GitHub”，一键绑定刚才推送的仓库。
-                      </p>
-                    </div>
-
-                    <div className="bg-zinc-950 p-4 rounded-lg border border-zinc-850 space-y-2">
-                      <div className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold font-mono">3</div>
-                      <h5 className="font-semibold text-zinc-200">变量配置 & 跑通</h5>
-                      <p className="text-zinc-500 text-[10px] leading-relaxed">
-                        在 Variables 中填入 `PORT=8000` (FastAPI) 和 `IWENCAI_API_KEY`，平台自动执行 Dockerfile，即可完成部署！
-                      </p>
+                    {/* PROMPT DISPLAY AREA */}
+                    <div className="bg-[#FAF9F6] p-6 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A] overflow-hidden">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#1A1A1A]/10 mb-4">
+                        <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-zinc-400">
+                          PROMPT PREVIEW (Markdown)
+                        </span>
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          包含 7 层指标体系 + 纸张美学样式指导 + 32 个数据路由对齐规范
+                        </span>
+                      </div>
+                      <div className="max-h-[500px] overflow-y-auto pr-2 select-text font-serif text-sm text-zinc-800 leading-relaxed space-y-4 whitespace-pre-wrap">
+                        {STOCK_ANALYSIS_PROMPT}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* VIEW 3: CODEBASE FILE EXPLORER (ORIGINAL FILES) */}
+                {fastApiSubTab === "files" && (
+                  <div className="space-y-6">
+                    <div className="bg-[#EFECE8] p-4 rounded-xl border border-[#1A1A1A]/30">
+                      <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider">
+                        后端项目底层架构源代码浏览
+                      </h4>
+                      <p className="text-[11px] text-zinc-600 mt-1 leading-relaxed">
+                        以下展现了 Python FastAPI 项目完整的物理目录文件和内部模块实现。你可以选择任意文件进行代码预览和拷贝，并在云端完成对齐调试。
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[500px]">
+                      {/* DIRECTORY TREE */}
+                      <div className="bg-[#FAF9F6] p-3 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A] overflow-y-auto flex flex-col h-full">
+                        <div className="text-[10px] uppercase tracking-widest font-bold text-[#1A1A1A] mb-2 px-2 border-b border-[#1A1A1A]/10 pb-1">
+                          后端项目文件目录
+                        </div>
+                        <div className="flex-1 space-y-0.5">
+                          {fastApiFiles.length > 0 ? (
+                            renderFileTree(fastApiFiles)
+                          ) : (
+                            <div className="text-zinc-500 text-xs py-4 px-2 font-medium">正在扫描 `/python-fastapi` 目录...</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* CODE PREVIEWER */}
+                      <div className="md:col-span-2 bg-[#FAF9F6] rounded-xl border-[1.5px] border-[#1A1A1A] flex flex-col h-full overflow-hidden shadow-[4px_4px_0px_#1A1A1A]">
+                        <div className="bg-[#EFECE8] px-4 py-2 flex items-center justify-between border-b border-[#1A1A1A]/80 shrink-0">
+                          <span className="text-xs font-mono font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                            <Code className="w-3.5 h-3.5 text-[#1A1A1A]" />
+                            {selectedFile?.name || "代码预览器"}
+                          </span>
+                          {selectedFile && (
+                            <button
+                              onClick={handleCopyCode}
+                              className="text-[10px] font-bold text-[#1A1A1A] hover:bg-white bg-[#EFECE8] px-2.5 py-1 rounded border border-[#1A1A1A]/80 flex items-center gap-1 transition-all cursor-pointer"
+                            >
+                              {copiedFile ? (
+                                <>
+                                  <Check className="w-3 h-3 text-red-700" />
+                                  已复制
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  复制代码
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex-1 overflow-auto p-4 font-mono text-xs text-[#1A1A1A] leading-relaxed bg-white select-text">
+                          {selectedFile ? (
+                            <pre className="whitespace-pre">{selectedFile.content}</pre>
+                          ) : (
+                            <div className="h-full flex flex-col items-center justify-center text-zinc-500 font-medium">
+                              <BookOpen className="w-8 h-8 mb-2 stroke-1 text-[#1A1A1A]" />
+                              <span>点击左侧树结构中的文件预览部署代码</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* RAILWAY STEP-BY-STEP */}
+                    <div className="bg-[#EFECE8] p-5 rounded-xl border border-[#1A1A1A]/40 space-y-4">
+                      <h4 className="text-sm font-bold text-[#1A1A1A] flex items-center gap-2 uppercase tracking-wide">
+                        <TermIcon className="w-4 h-4 text-[#1A1A1A] animate-pulse" />
+                        云原生 Railway 极速部署三板斧
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                        <div className="bg-white p-4 rounded-lg border border-[#1A1A1A]/30 space-y-2 shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
+                          <div className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white flex items-center justify-center font-bold font-mono text-xs">1</div>
+                          <h5 className="font-serif font-bold text-[#1A1A1A]">GitHub 推送代码</h5>
+                          <p className="text-zinc-600 text-[10px] leading-relaxed">
+                            将整个 `/python-fastapi` 里的文件推送到你新建的 GitHub 私有或公开仓库。
+                          </p>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-lg border border-[#1A1A1A]/30 space-y-2 shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
+                          <div className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white flex items-center justify-center font-bold font-mono text-xs">2</div>
+                          <h5 className="font-serif font-bold text-[#1A1A1A]">Railway 绑定导入</h5>
+                          <p className="text-zinc-600 text-[10px] leading-relaxed">
+                            在 Railway 平台创建“New Project”，选择 “Deploy from GitHub”，一键绑定刚才推送的仓库。
+                          </p>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-lg border border-[#1A1A1A]/30 space-y-2 shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
+                          <div className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white flex items-center justify-center font-bold font-mono text-xs">3</div>
+                          <h5 className="font-serif font-bold text-[#1A1A1A]">变量配置 & 跑通</h5>
+                          <p className="text-zinc-600 text-[10px] leading-relaxed">
+                            在 Variables 中填入 `PORT=8000` (FastAPI) 和 `IWENCAI_API_KEY`，平台自动执行 Dockerfile，即可完成部署！
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -1006,13 +1568,13 @@ export default function App() {
       </div>
 
       {/* FOOTER SYSTEM BADGE */}
-      <footer className="border-t border-zinc-850 bg-zinc-950/80 py-4 px-6 mt-12">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-500">
+      <footer className="border-t border-[#1A1A1A]/20 bg-[#FAF9F6] py-6 px-6 mt-12">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#1A1A1A]/70 font-medium">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span className="font-mono text-zinc-400 font-medium">A-Stock Express Proxy Gate: ONLINE</span>
+            <span className="w-2 h-2 rounded-full bg-[#1A1A1A] animate-ping" />
+            <span className="font-mono text-[#1A1A1A] font-bold uppercase tracking-wider">A-Stock Express Proxy Gate: ACTIVE</span>
           </div>
-          <div>
+          <div className="font-serif">
             A-Share Financial Analytics Terminal &copy; 2026. Designed for Simon Lin.
           </div>
         </div>
