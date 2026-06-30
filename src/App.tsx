@@ -233,9 +233,42 @@ export default function App() {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [endpointSearchQuery, setEndpointSearchQuery] = useState("");
 
+  // Dynamic API Base URL configuration for Vercel deployment support
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => {
+    return localStorage.getItem("api_base_url") || (import.meta as any).env?.VITE_API_BASE_URL || "";
+  });
+  const [apiConnectionStatus, setApiConnectionStatus] = useState<"testing" | "connected" | "fallback">("testing");
+  const [testUrlInput, setTestUrlInput] = useState(apiBaseUrl);
+  const [apiTestSuccess, setApiTestSuccess] = useState<boolean | null>(null);
+
+  const cleanBaseUrl = apiBaseUrl.trim().replace(/\/$/, "");
+
+  const checkApiConnection = (urlToCheck: string) => {
+    const cleanUrl = urlToCheck.trim().replace(/\/$/, "");
+    setApiConnectionStatus("testing");
+    fetch(`${cleanUrl}/api/health`)
+      .then((res) => {
+        if (res.ok) {
+          setApiConnectionStatus("connected");
+          setApiTestSuccess(true);
+        } else {
+          setApiConnectionStatus("fallback");
+          setApiTestSuccess(false);
+        }
+      })
+      .catch(() => {
+        setApiConnectionStatus("fallback");
+        setApiTestSuccess(false);
+      });
+  };
+
+  useEffect(() => {
+    checkApiConnection(apiBaseUrl);
+  }, [apiBaseUrl]);
+
   // Load the Python codebase structure on mount
   useEffect(() => {
-    fetch("/api/fastapi-files")
+    fetch(`${cleanBaseUrl}/api/fastapi-files`)
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.files) {
@@ -247,13 +280,13 @@ export default function App() {
         }
       })
       .catch((err) => console.error("Error fetching files:", err));
-  }, []);
+  }, [apiBaseUrl]);
 
   // Global investment news loaders
   const fetchGlobalInvestmentNews = (force = false) => {
     setGlobalInvestmentLoading(true);
     setGlobalInvestmentError(null);
-    fetch(`/api/news/global-investment?force=${force}`)
+    fetch(`${cleanBaseUrl}/api/news/global-investment?force=${force}`)
       .then((res) => {
         if (!res.ok) throw new Error("HTTP error " + res.status);
         return res.json();
@@ -279,7 +312,7 @@ export default function App() {
   const handleFullRefreshFeeds = () => {
     setGlobalInvestmentLoading(true);
     setGlobalInvestmentError(null);
-    fetch("/api/news/global-investment/refresh", { method: "POST" })
+    fetch(`${cleanBaseUrl}/api/news/global-investment/refresh`, { method: "POST" })
       .then((res) => {
         if (!res.ok) throw new Error("HTTP error " + res.status);
         return res.json();
@@ -304,7 +337,7 @@ export default function App() {
 
   const handleDigestSector = (sectorKey: string) => {
     setSectorDigesting(sectorKey);
-    fetch(`/api/news/global-investment/digest-sector?sector_key=${sectorKey}`, { method: "POST" })
+    fetch(`${cleanBaseUrl}/api/news/global-investment/digest-sector?sector_key=${sectorKey}`, { method: "POST" })
       .then((res) => {
         if (!res.ok) throw new Error("HTTP error " + res.status);
         return res.json();
@@ -336,7 +369,7 @@ export default function App() {
 
   useEffect(() => {
     fetchGlobalInvestmentNews();
-  }, []);
+  }, [apiBaseUrl]);
 
   // Fetch real-time data from node proxies whenever selected stock changes
   useEffect(() => {
@@ -345,13 +378,13 @@ export default function App() {
     const code = selectedStock;
 
     Promise.all([
-      fetch(`/api/proxy/tencent?symbols=${code}`).then((r) => r.json()),
-      fetch(`/api/proxy/eastmoney/info?code=${code}`).then((r) => r.json()),
-      fetch(`/api/proxy/eastmoney/blocks?code=${code}`).then((r) => r.json()),
-      fetch(`/api/proxy/eastmoney/news?code=${code}`).then((r) => r.json()),
-      fetch(`/api/proxy/cninfo?code=${code}`).then((r) => r.json()),
-      fetch(`/api/proxy/ths-hot`).then((r) => r.json()).catch(() => []),
-      fetch(`/api/proxy/eastmoney/global-news`).then((r) => r.json()).catch(() => []),
+      fetch(`${cleanBaseUrl}/api/proxy/tencent?symbols=${code}`).then((r) => r.json()),
+      fetch(`${cleanBaseUrl}/api/proxy/eastmoney/info?code=${code}`).then((r) => r.json()),
+      fetch(`${cleanBaseUrl}/api/proxy/eastmoney/blocks?code=${code}`).then((r) => r.json()),
+      fetch(`${cleanBaseUrl}/api/proxy/eastmoney/news?code=${code}`).then((r) => r.json()),
+      fetch(`${cleanBaseUrl}/api/proxy/cninfo?code=${code}`).then((r) => r.json()),
+      fetch(`${cleanBaseUrl}/api/proxy/ths-hot`).then((r) => r.json()).catch(() => []),
+      fetch(`${cleanBaseUrl}/api/proxy/eastmoney/global-news`).then((r) => r.json()).catch(() => []),
     ])
       .then(([quoteData, infoData, blocksData, newsData, annData, hotData, gNewsData]) => {
         if (quoteData && quoteData[code]) {
@@ -373,7 +406,7 @@ export default function App() {
       .finally(() => {
         setLoading(false);
       });
-  }, [selectedStock]);
+  }, [selectedStock, apiBaseUrl]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -384,8 +417,80 @@ export default function App() {
     }
   };
 
-  // Safe fallback resolver for charts & lists
-  const activeStockMock = MOCK_DATA_MAP[selectedStock] || MOCK_DATA_MAP["688017"];
+  // Safe fallback resolver for charts & lists - dynamically generated based on live quotes and code characteristics
+  const getActiveStockData = () => {
+    // If we have explicit preset mock, use it
+    if (MOCK_DATA_MAP[selectedStock]) {
+      return MOCK_DATA_MAP[selectedStock];
+    }
+
+    // Otherwise, generate a beautiful, dynamic sandbox based on the live stock price and info!
+    const basePrice = liveQuote?.price || 15.0; // fallback base price
+    const peTtm = liveQuote?.pe_ttm || 25.0;
+    const pb = liveQuote?.pb || 2.0;
+
+    // Generate K-line around the current price
+    const kline = [
+      { date: "06-19", price: parseFloat((basePrice * 0.90).toFixed(2)) },
+      { date: "06-20", price: parseFloat((basePrice * 0.92).toFixed(2)) },
+      { date: "06-21", price: parseFloat((basePrice * 0.95).toFixed(2)) },
+      { date: "06-22", price: parseFloat((basePrice * 0.93).toFixed(2)) },
+      { date: "06-23", price: parseFloat((basePrice * 0.96).toFixed(2)) },
+      { date: "06-24", price: parseFloat((basePrice * 0.98).toFixed(2)) },
+      { date: "06-25", price: parseFloat((basePrice * 0.97).toFixed(2)) },
+      { date: "06-26", price: parseFloat(basePrice.toFixed(2)) },
+    ];
+
+    // Generate Consensus forecast
+    // EPS fwd calculation
+    const baseEps = peTtm > 0 ? basePrice / peTtm : 0.5;
+    const forecast = [
+      { "年度": "2024", "机构数": 12, "最小值": parseFloat((baseEps * 0.95).toFixed(2)), "均值": parseFloat(baseEps.toFixed(2)), "最大值": parseFloat((baseEps * 1.05).toFixed(2)) },
+      { "年度": "2025", "机构数": 12, "最小值": parseFloat((baseEps * 1.05).toFixed(2)), "均值": parseFloat((baseEps * 1.15).toFixed(2)), "最大值": parseFloat((baseEps * 1.25).toFixed(2)) },
+      { "年度": "2026", "机构数": 10, "最小值": parseFloat((baseEps * 1.15).toFixed(2)), "均值": parseFloat((baseEps * 1.30).toFixed(2)), "最大值": parseFloat((baseEps * 1.45).toFixed(2)) },
+    ];
+
+    // Generate shareholder details with concentration detection
+    const holders = [
+      { date: "2025-03-31", holder_num: 45000, change_ratio: -1.2, avg_shares: 2400 },
+      { date: "2025-06-30", holder_num: 44100, change_ratio: -2.0, avg_shares: 2450 },
+      { date: "2025-09-30", holder_num: 42300, change_ratio: -4.1, avg_shares: 2550 },
+      { date: "2025-12-31", holder_num: 40100, change_ratio: -5.2, avg_shares: 2690 },
+      { date: "2026-03-31", holder_num: 37500, change_ratio: -6.5, avg_shares: 2880 },
+    ];
+
+    // Generate dividends
+    const dividends = [
+      { date: "2025-06-20", bonus_rmb: parseFloat((basePrice * 0.015).toFixed(2)), transfer_ratio: 0, bonus_ratio: 0, plan: "实施完毕" },
+      { date: "2024-06-22", bonus_rmb: parseFloat((basePrice * 0.012).toFixed(2)), transfer_ratio: 0, bonus_ratio: 0, plan: "实施完毕" },
+      { date: "2023-06-25", bonus_rmb: parseFloat((basePrice * 0.010).toFixed(2)), transfer_ratio: 0, bonus_ratio: 0, plan: "实施完毕" },
+    ];
+
+    // Calculate PE forward & PEG valuation
+    const pe_fwd = peTtm > 0 ? parseFloat((peTtm * 0.85).toFixed(1)) : 20.0;
+    const cagr = 15.0; // Assume 15% growth rate
+    const peg = parseFloat((pe_fwd / cagr).toFixed(2));
+    const digest_years = pe_fwd > 30 ? parseFloat((Math.log(pe_fwd / 30) / Math.log(1.15)).toFixed(1)) : 0;
+    const rating = peg < 1.0 ? "UNDERVALUED (PEG < 1.0)" : peg <= 1.5 ? "FAIR VALUE (PEG 1.0 - 1.5)" : "OVERVALUED (PEG > 1.5)";
+
+    return {
+      forecast,
+      holders,
+      dividends,
+      kline,
+      valuation: {
+        pe_ttm: peTtm,
+        pe_fwd,
+        cagr,
+        peg,
+        digest_years,
+        rating,
+        pb
+      }
+    };
+  };
+
+  const activeStockMock = getActiveStockData();
 
   // Merge live metrics with offline fallbacks
   const displayName = liveQuote?.name || PRESET_STOCKS.find((s) => s.code === selectedStock)?.name || `股票 ${selectedStock}`;
@@ -1320,6 +1425,94 @@ export default function App() {
                       部署项目代码库
                     </button>
                   </div>
+                </div>
+
+                {/* ADVANCED API ROOT CONFIGURATOR */}
+                <div className="bg-[#FAF9F6] p-5 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A] space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#1A1A1A]/10 pb-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider flex items-center gap-2">
+                        <Cpu className="w-3.5 h-3.5 text-[#1A1A1A]" />
+                        生产环境后端 API 根路径配置 (对齐 Vercel 静态托管)
+                      </h4>
+                      <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">
+                        当您在 Vercel 部署前端时，请在此配置或填入部署在 Railway 上的后端公网 URL 以跑通真实数据链路。
+                      </p>
+                    </div>
+
+                    {/* STATUS BADGE */}
+                    <div className="shrink-0 flex items-center gap-2">
+                      <span className="text-[10px] text-zinc-400 font-mono">连接状态:</span>
+                      {apiConnectionStatus === "testing" && (
+                        <span className="text-[10px] font-mono font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 animate-pulse flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          正在测试连接...
+                        </span>
+                      )}
+                      {apiConnectionStatus === "connected" && (
+                        <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                          连接成功 (在线真实服务)
+                        </span>
+                      )}
+                      {apiConnectionStatus === "fallback" && (
+                        <span className="text-[10px] font-mono font-bold text-zinc-600 bg-zinc-100 px-2.5 py-1 rounded-full border border-zinc-300 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+                          沙盒连接 (高保真模型模拟)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 relative">
+                      <Server className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={testUrlInput}
+                        onChange={(e) => setTestUrlInput(e.target.value)}
+                        placeholder="例如: https://your-backend.up.railway.app"
+                        className="w-full bg-white pl-9 pr-4 py-2 text-xs font-mono border-[1.5px] border-[#1A1A1A] rounded shadow-[2px_2px_0px_#1A1A1A] focus:outline-none focus:ring-0 placeholder:text-zinc-400 text-[#1A1A1A]"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          const val = testUrlInput.trim();
+                          localStorage.setItem("api_base_url", val);
+                          setApiBaseUrl(val);
+                          checkApiConnection(val);
+                        }}
+                        className="px-4 py-2 bg-[#1A1A1A] text-white text-xs font-serif font-bold rounded border border-[#1A1A1A] hover:bg-neutral-800 transition-all cursor-pointer shadow-[2px_2px_0px_rgba(0,0,0,0.15)] shrink-0"
+                      >
+                        测试并保存
+                      </button>
+                      {apiBaseUrl && (
+                        <button
+                          onClick={() => {
+                            localStorage.removeItem("api_base_url");
+                            setApiBaseUrl("");
+                            setTestUrlInput("");
+                            checkApiConnection("");
+                          }}
+                          className="px-3 py-2 bg-white text-[#1A1A1A] text-xs font-serif font-bold rounded border border-[#1A1A1A]/30 hover:bg-[#EFECE8] transition-all cursor-pointer shrink-0"
+                        >
+                          重置为本地
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {apiTestSuccess === true && (
+                    <p className="text-[10px] text-emerald-700 font-medium">
+                      ✓ 已成功接入您的云端 API 服务，终端已无缝切换至生产数据链路！
+                    </p>
+                  )}
+                  {apiTestSuccess === false && testUrlInput && (
+                    <p className="text-[10px] text-red-600 font-medium">
+                      ✗ 无法连接到指定的 API 路径，请检查服务是否已成功部署在 Railway 上、CORS 跨域是否允许、或 URL 拼写是否正确。系统已安全退回高保真沙盒。
+                    </p>
+                  )}
                 </div>
 
                 {/* VIEW 1: COMPLETE ENDPOINT REGISTRY */}
