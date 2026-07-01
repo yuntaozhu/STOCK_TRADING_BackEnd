@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
+    "dev": "python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3000 --app-dir python-fastapi",
+    "build": "echo 'No build step needed for python backend'",
+    "start": "python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3000 --app-dir python-fastapi",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "echo 'No lint step needed for python backend'"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

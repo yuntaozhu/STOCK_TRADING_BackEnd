@@ -235,7 +235,8 @@ export default function App() {
 
   // Dynamic API Base URL configuration for Vercel deployment support
   const [apiBaseUrl, setApiBaseUrl] = useState(() => {
-    return localStorage.getItem("api_base_url") || (import.meta as any).env?.VITE_API_BASE_URL || "";
+    const env = (import.meta as any).env || {};
+    return localStorage.getItem("api_base_url") || env.VITE_API_URL || env.VITE_API_BASE_URL || "";
   });
   const [apiConnectionStatus, setApiConnectionStatus] = useState<"testing" | "connected" | "fallback">("testing");
   const [testUrlInput, setTestUrlInput] = useState(apiBaseUrl);

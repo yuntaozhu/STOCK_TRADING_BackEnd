@@ -5,6 +5,18 @@ import axios from "axios";
 import { spawn, execSync } from "child_process";
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
+import { fileURLToPath } from "url";
+
+let _dirname = "";
+try {
+  _dirname = __dirname;
+} catch (e) {
+  _dirname = path.dirname(fileURLToPath(import.meta.url));
+}
+
+const IS_PROD = process.env.NODE_ENV === "production";
+const PROJECT_ROOT = IS_PROD ? path.join(_dirname, "..") : _dirname;
+const DIST_PATH = IS_PROD ? _dirname : path.join(_dirname, "dist");
 
 // Helper to convert stock tickers to prefixed tickers for Tencent quote
 function cleanCode(code: string): string {
@@ -32,7 +44,7 @@ const ai = new GoogleGenAI({
 });
 
 function getNewsData() {
-  const cachePath = path.join(process.cwd(), "investment-news", "data_cache.json");
+  const cachePath = path.join(PROJECT_ROOT, "investment-news", "data_cache.json");
   if (fs.existsSync(cachePath)) {
     try {
       return JSON.parse(fs.readFileSync(cachePath, "utf-8"));
@@ -41,7 +53,7 @@ function getNewsData() {
     }
   }
 
-  const dataJsPath = path.join(process.cwd(), "investment-news", "data.js");
+  const dataJsPath = path.join(PROJECT_ROOT, "investment-news", "data.js");
   if (fs.existsSync(dataJsPath)) {
     try {
       const content = fs.readFileSync(dataJsPath, "utf-8");
@@ -154,7 +166,7 @@ async function startServer() {
     };
 
     try {
-      const dirPath = path.join(process.cwd(), "python-fastapi");
+      const dirPath = path.join(PROJECT_ROOT, "python-fastapi");
       if (fs.existsSync(dirPath)) {
         const files = getFilesRecursively(dirPath);
         res.json({ success: true, files });
@@ -602,7 +614,7 @@ async function startServer() {
       targetInd.has_ai = true;
 
       try {
-        const cachePath = path.join(process.cwd(), "investment-news", "data_cache.json");
+        const cachePath = path.join(PROJECT_ROOT, "investment-news", "data_cache.json");
         fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), "utf-8");
       } catch (e: any) {
         console.error("Failed to write back data_cache.json on digest:", e.message);
@@ -622,10 +634,11 @@ async function startServer() {
     }
   });
 
-  // 3.5 FALLBACK PROXY TO PYTHON FASTAPI BACKEND (PORT 8090)
+  // 3.5 FALLBACK PROXY TO PYTHON FASTAPI BACKEND
   app.all("/api/*", async (req, res) => {
+    const apiBase = (process.env.FASTAPI_URL || "http://127.0.0.1:8090").replace(/\/$/, "");
     try {
-      const targetUrl = `http://127.0.0.1:8090${req.path}`;
+      const targetUrl = `${apiBase}${req.path}`;
       const response = await axios({
         method: req.method,
         url: targetUrl,
@@ -635,7 +648,11 @@ async function startServer() {
           const proxyHeaders = { ...req.headers };
           delete proxyHeaders["authorization"];
           delete proxyHeaders["cookie"];
-          proxyHeaders["host"] = "127.0.0.1:8090";
+          try {
+            proxyHeaders["host"] = new URL(apiBase).host;
+          } catch (e) {
+            proxyHeaders["host"] = "127.0.0.1:8090";
+          }
           return proxyHeaders;
         })(),
         validateStatus: () => true,
@@ -645,7 +662,7 @@ async function startServer() {
       res.status(502).json({
         error: "FastAPI gateway error",
         message: err.message,
-        detail: "Please verify that the Python FastAPI backend is running on port 8090"
+        detail: `Please verify that the Python FastAPI backend is running at ${apiBase}`
       });
     }
   });
@@ -658,7 +675,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = DIST_PATH;
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
@@ -669,7 +686,7 @@ async function startServer() {
   try {
     console.log("Starting Python FastAPI backend on port 8090...");
     const fastapiProcess = spawn("python3", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8090"], {
-      cwd: path.join(process.cwd(), "python-fastapi"),
+      cwd: path.join(PROJECT_ROOT, "python-fastapi"),
       stdio: "inherit",
       env: { ...process.env, PYTHONUNBUFFERED: "1" }
     });
@@ -678,7 +695,7 @@ async function startServer() {
       console.warn("Failed to start FastAPI process with python3, attempting python:", err.message);
       try {
         const pProcess = spawn("python", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8090"], {
-          cwd: path.join(process.cwd(), "python-fastapi"),
+          cwd: path.join(PROJECT_ROOT, "python-fastapi"),
           stdio: "inherit",
           env: { ...process.env, PYTHONUNBUFFERED: "1" }
         });
@@ -686,7 +703,7 @@ async function startServer() {
           console.warn("Failed to start FastAPI process with python, attempting uvicorn directly:", err2.message);
           try {
             const uProcess = spawn("uvicorn", ["app.main:app", "--host", "127.0.0.1", "--port", "8090"], {
-              cwd: path.join(process.cwd(), "python-fastapi"),
+              cwd: path.join(PROJECT_ROOT, "python-fastapi"),
               stdio: "inherit",
               env: { ...process.env, PYTHONUNBUFFERED: "1" }
             });
