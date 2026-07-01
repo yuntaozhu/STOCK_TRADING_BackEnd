@@ -21,10 +21,10 @@ app = FastAPI(
 # Configure standard CORSMiddleware to allow requests from https://www.superegoagent.com
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://www.superegoagent.com"],
+    allow_origins=['https://www.superegoagent.com'],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
 
 # Custom performance profiling middleware
