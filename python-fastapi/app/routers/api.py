@@ -3,16 +3,6 @@ from fastapi import APIRouter, Query, HTTPException, status
 from fastapi.responses import FileResponse
 from typing import List, Optional
 
-# Import services
-from app.services.market import MarketService
-from app.services.reports import ReportsService
-from app.services.signals import SignalsService
-from app.services.capital import CapitalService
-from app.services.news import NewsService
-from app.services.financials import FinancialsService
-from app.services.announcements import AnnouncementsService
-from app.services.global_news import GlobalNewsService
-
 router = APIRouter(prefix="/api")
 
 # =====================================================================
@@ -22,25 +12,46 @@ router = APIRouter(prefix="/api")
 @router.get("/market/kline", tags=["Market"])
 def get_kline(code: str, category: int = 4, offset: int = 100):
     """mootdx TCP 行情 K线"""
-    return MarketService.get_mootdx_kline(code, category, offset)
+    try:
+        from app.services.market import MarketService
+        return MarketService.get_mootdx_kline(code, category, offset)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/market/quotes", tags=["Market"])
 def get_quotes(symbols: str = Query(..., description="Comma separated tickers, e.g. 600519,000858")):
     """mootdx TCP 五档盘口及实时价格"""
-    symbol_list = symbols.split(",")
-    return MarketService.get_mootdx_quotes(symbol_list)
+    try:
+        from app.services.market import MarketService
+        symbol_list = symbols.split(",")
+        return MarketService.get_mootdx_quotes(symbol_list)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/market/transactions", tags=["Market"])
 def get_transactions(code: str, date: Optional[str] = None):
     """mootdx TCP 逐笔成交记录"""
-    return MarketService.get_mootdx_transactions(code, date)
+    try:
+        from app.services.market import MarketService
+        return MarketService.get_mootdx_transactions(code, date)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/market/tencent", tags=["Market"])
 def get_tencent_quotes(symbols: str = Query(..., description="Comma separated tickers, e.g. 688017,300476")):
     """腾讯财经接口 - 极速实时估值（PE/PB/市值/换手率/涨跌停价）"""
-    symbol_list = symbols.split(",")
     try:
+        from app.services.market import MarketService
+        symbol_list = symbols.split(",")
         return MarketService.get_tencent_quotes(symbol_list)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -48,7 +59,10 @@ def get_tencent_quotes(symbols: str = Query(..., description="Comma separated ti
 def get_baidu_kline(code: str, start_time: Optional[str] = ""):
     """百度股市通 - 自带 MA5/10/20 均线的K线"""
     try:
+        from app.services.market import MarketService
         return MarketService.get_baidu_kline(code, start_time)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -60,35 +74,59 @@ def get_baidu_kline(code: str, start_time: Optional[str] = ""):
 @router.get("/reports/stock", tags=["Reports"])
 def get_stock_reports(code: str, max_pages: int = 3):
     """东财个股研报列表"""
-    return ReportsService.get_eastmoney_stock_reports(code, max_pages)
+    try:
+        from app.services.reports import ReportsService
+        return ReportsService.get_eastmoney_stock_reports(code, max_pages)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/reports/industry", tags=["Reports"])
 def get_industry_reports(industry_code: str = "*", max_pages: int = 3, begin: str = "2024-01-01"):
     """东财行业研报列表"""
-    return ReportsService.get_eastmoney_industry_reports(industry_code, max_pages, begin)
+    try:
+        from app.services.reports import ReportsService
+        return ReportsService.get_eastmoney_industry_reports(industry_code, max_pages, begin)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/reports/download", tags=["Reports"])
 def download_pdf(info_code: str, title: str, org: str, date: str):
     """下载东财研报 PDF 文件，支持 Referer 限流防封"""
     try:
+        from app.services.reports import ReportsService
         pdf_path = ReportsService.download_report_pdf(info_code, title, org, date)
         return FileResponse(pdf_path, filename=f"{date}_{org}_{title}.pdf", media_type="application/pdf")
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/reports/forecast", tags=["Reports"])
 def get_consensus_forecast(code: str):
     """同花顺机构一致预期 (EPS Consensus)"""
-    return ReportsService.get_ths_forecast(code)
+    try:
+        from app.services.reports import ReportsService
+        return ReportsService.get_ths_forecast(code)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/reports/iwencai/search", tags=["Reports"])
 def search_iwencai(query: str, channel: str = "report", size: int = 50):
     """iwencai NLP 语义搜索研报/公告/新闻 (需要 API Key)"""
     try:
+        from app.services.reports import ReportsService
         raw_results = ReportsService.search_iwencai(query, channel, size)
         if channel == "report":
             return ReportsService.dedup_articles(raw_results)
         return raw_results
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -96,7 +134,10 @@ def search_iwencai(query: str, channel: str = "report", size: int = 50):
 def query_iwencai_data(query: str, page: int = 1, limit: int = 50):
     """iwencai 结构化自然语言选股/财务查询 (需要 API Key)"""
     try:
+        from app.services.reports import ReportsService
         return ReportsService.query_iwencai_data(query, page, limit)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -109,7 +150,10 @@ def query_iwencai_data(query: str, page: int = 1, limit: int = 50):
 def get_ths_hot(date: Optional[str] = None):
     """同花顺当日最强龙头股归因 (人工运营题材标签)"""
     try:
+        from app.services.signals import SignalsService
         return SignalsService.get_ths_hot_reason(date)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -117,39 +161,78 @@ def get_ths_hot(date: Optional[str] = None):
 def get_northbound_flow():
     """北向资金实时累计分钟资金流向 (沪股通/深股通)"""
     try:
+        from app.services.signals import SignalsService
         return SignalsService.get_hsgt_realtime()
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/signals/blocks", tags=["Signals"])
 def get_concept_blocks(code: str):
     """东财板块/概念板块归属 (行业/地域/概念、板块代码及龙头股)"""
-    return SignalsService.get_eastmoney_concept_blocks(code)
+    try:
+        from app.services.signals import SignalsService
+        return SignalsService.get_eastmoney_concept_blocks(code)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/signals/fundflow/minute", tags=["Signals"])
 def get_fundflow_minute(code: str):
     """东财个股实时分钟级资金流向"""
-    return SignalsService.get_eastmoney_fund_flow_minute(code)
+    try:
+        from app.services.signals import SignalsService
+        return SignalsService.get_eastmoney_fund_flow_minute(code)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/signals/dragon-tiger", tags=["Signals"])
 def get_dragon_tiger(code: str, date: str, look_back: int = 30):
     """个股近N日上榜原因、顶级营业部和机构席位资金净买额"""
-    return SignalsService.get_dragon_tiger_board(code, date, look_back)
+    try:
+        from app.services.signals import SignalsService
+        return SignalsService.get_dragon_tiger_board(code, date, look_back)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/signals/lockup", tags=["Signals"])
 def get_lockup_expiry(code: str, date: str, forward_days: int = 90):
     """限售解禁历史与未来 90 天待解禁预警日历"""
-    return SignalsService.get_lockup_expiry(code, date, forward_days)
+    try:
+        from app.services.signals import SignalsService
+        return SignalsService.get_lockup_expiry(code, date, forward_days)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/signals/industry-rank", tags=["Signals"])
 def get_industry_rank(top_n: int = 20):
     """东财全行业涨跌、资金流主力流入及领涨个股监控"""
-    return SignalsService.get_industry_comparison(top_n)
+    try:
+        from app.services.signals import SignalsService
+        return SignalsService.get_industry_comparison(top_n)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/signals/daily-dragon-tiger", tags=["Signals"])
 def get_daily_dragon_tiger(date: Optional[str] = None, min_net_buy: Optional[float] = None):
     """全市场当日所有触发龙虎榜的成交净额与换手排行榜"""
-    return SignalsService.get_daily_dragon_tiger(date, min_net_buy)
+    try:
+        from app.services.signals import SignalsService
+        return SignalsService.get_daily_dragon_tiger(date, min_net_buy)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================================
@@ -159,27 +242,57 @@ def get_daily_dragon_tiger(date: Optional[str] = None, min_net_buy: Optional[flo
 @router.get("/capital/margin", tags=["Capital"])
 def get_margin(code: str, page_size: int = 30):
     """融资融券明细、融资余额变动、融券偿还指标"""
-    return CapitalService.get_margin_trading(code, page_size)
+    try:
+        from app.services.capital import CapitalService
+        return CapitalService.get_margin_trading(code, page_size)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/capital/block-trade", tags=["Capital"])
 def get_block_trade(code: str, page_size: int = 20):
     """大宗交易大额买卖双方营业部及溢折价排行"""
-    return CapitalService.get_block_trade(code, page_size)
+    try:
+        from app.services.capital import CapitalService
+        return CapitalService.get_block_trade(code, page_size)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/capital/holders", tags=["Capital"])
 def get_holder_changes(code: str, page_size: int = 10):
     """最新披露季度股东户数、环比集中或发散指标"""
-    return CapitalService.get_holder_num_change(code, page_size)
+    try:
+        from app.services.capital import CapitalService
+        return CapitalService.get_holder_num_change(code, page_size)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/capital/dividends", tags=["Capital"])
 def get_dividends(code: str, page_size: int = 20):
     """历史派红息方案、送股转增比例、现金派息实力"""
-    return CapitalService.get_dividend_history(code, page_size)
+    try:
+        from app.services.capital import CapitalService
+        return CapitalService.get_dividend_history(code, page_size)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/capital/fundflow/120d", tags=["Capital"])
 def get_fundflow_120d(code: str):
     """个股 120 日主力资金(超大/大单)净买入累积情况"""
-    return CapitalService.get_stock_fund_flow_120d(code)
+    try:
+        from app.services.capital import CapitalService
+        return CapitalService.get_stock_fund_flow_120d(code)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================================
@@ -189,18 +302,33 @@ def get_fundflow_120d(code: str):
 @router.get("/news/stock", tags=["News"])
 def get_stock_news(code: str, page_size: int = 20):
     """东财个股独有新闻资讯列表 (清除网页标签)"""
-    return NewsService.get_eastmoney_stock_news(code, page_size)
+    try:
+        from app.services.news import NewsService
+        return NewsService.get_eastmoney_stock_news(code, page_size)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/news/global", tags=["News"])
 def get_global_news(page_size: int = 50):
     """7x24小时财经快讯、全市场全球宏观电报流"""
-    return NewsService.get_eastmoney_global_news(page_size)
+    try:
+        from app.services.news import NewsService
+        return NewsService.get_eastmoney_global_news(page_size)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/news/global-investment", tags=["News"])
 def get_global_investment_news(force: bool = False):
     """获取全球投研咨询及行业深度AI要点(含缓存支持)"""
     try:
+        from app.services.global_news import GlobalNewsService
         return GlobalNewsService.get_news_data(force_fetch=force)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch global investment news: {e}")
 
@@ -208,7 +336,10 @@ def get_global_investment_news(force: bool = False):
 def refresh_global_investment_news(recent_days: int = Query(7, description="Fetch news from the last N days")):
     """重新抓取并更新全行业全球投研资讯"""
     try:
+        from app.services.global_news import GlobalNewsService
         return GlobalNewsService.refresh_news_feed_data(recent_days=recent_days)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refresh feeds: {e}")
 
@@ -216,10 +347,15 @@ def refresh_global_investment_news(recent_days: int = Query(7, description="Fetc
 def digest_sector_investment_news(sector_key: str = Query(..., description="The industry sector key to digest (e.g. ai, semi, robot)")):
     """利用 Gemini 大模型对指定赛道新闻进行提炼(今日要点 + 中文标题翻译)"""
     try:
+        from app.services.global_news import GlobalNewsService
         res = GlobalNewsService.digest_sector(sector_key)
         if not res.get("success"):
             raise HTTPException(status_code=500, detail=res.get("error", "AI digestion failed"))
         return res
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -231,22 +367,46 @@ def digest_sector_investment_news(sector_key: str = Query(..., description="The 
 @router.get("/financials/mootdx", tags=["Financials"])
 def get_mootdx_finance(code: str):
     """mootdx 季报 37 核心财务科目快照"""
-    return FinancialsService.get_mootdx_finance(code)
+    try:
+        from app.services.financials import FinancialsService
+        return FinancialsService.get_mootdx_finance(code)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/financials/f10", tags=["Financials"])
 def get_mootdx_f10(code: str, section: str = "公司概况"):
     """F10大项文本内容检索 (包括业内点评、行业分析等九大分类)"""
-    return {"section": section, "content": FinancialsService.get_mootdx_f10(code, section)}
+    try:
+        from app.services.financials import FinancialsService
+        return {"section": section, "content": FinancialsService.get_mootdx_f10(code, section)}
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/financials/stock-info", tags=["Financials"])
 def get_stock_info(code: str):
     """东财基本股本结构、流通市值、行业分类与上市时间"""
-    return FinancialsService.get_eastmoney_stock_info(code)
+    try:
+        from app.services.financials import FinancialsService
+        return FinancialsService.get_eastmoney_stock_info(code)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/financials/sina", tags=["Financials"])
 def get_sina_statements(code: str, type: str = "lrb", num: int = 8):
     """新浪披露三表：资产负债表 (fzb)、利润表 (lrb)、现金流量表 (llb)"""
-    return FinancialsService.get_sina_financial_report(code, type, num)
+    try:
+        from app.services.financials import FinancialsService
+        return FinancialsService.get_sina_financial_report(code, type, num)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================================
@@ -256,7 +416,13 @@ def get_sina_statements(code: str, type: str = "lrb", num: int = 8):
 @router.get("/announcements", tags=["Announcements"])
 def get_announcements(code: str, page_size: int = 30):
     """巨潮资讯巨量公告检索，包含精确匹配的 orgId 转换及PDF路径"""
-    return AnnouncementsService.get_cninfo_announcements(code, page_size)
+    try:
+        from app.services.announcements import AnnouncementsService
+        return AnnouncementsService.get_cninfo_announcements(code, page_size)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Service unavailable: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================================
@@ -272,6 +438,9 @@ def get_valuation_analysis(code: str):
     3. 运行前向 PE (Forward PE)、CAGR 业绩增长率、PEG 指标和 30x PE 消化时间
     """
     try:
+        from app.services.market import MarketService
+        from app.services.reports import ReportsService
+
         # 1. Fetch live price
         tencent_info = MarketService.get_tencent_quotes([code])
         if not tencent_info or code not in tencent_info:
