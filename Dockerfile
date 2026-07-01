@@ -31,5 +31,5 @@ RUN python -m compileall app/
 # Expose port (Railway will override this with its PORT env var)
 EXPOSE $PORT
 
-# Command to run the service in multi-worker production mode
-CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 4
+# Command to run the service in standard production mode
+CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT

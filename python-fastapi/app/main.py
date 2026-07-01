@@ -18,14 +18,30 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Configure CORS Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex="https?://.*",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Configure fully dynamic CORS middleware to support any origin with credentials (bypass Starlette limitations)
+@app.middleware("http")
+async def dynamic_cors_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        response = JSONResponse(
+            content="OK",
+            headers={
+                "Access-Control-Allow-Origin": request.headers.get("Origin") or "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Max-Age": "3600",
+            }
+        )
+        return response
+
+    response = await call_next(request)
+    origin = request.headers.get("Origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 # Custom performance profiling middleware
 @app.middleware("http")
