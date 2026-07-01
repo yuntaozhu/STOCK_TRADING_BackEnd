@@ -75,3 +75,11 @@ def health_check():
 
 # Bind our core api routers containing 28 modules and calculations
 app.include_router(api_router)
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 3000))
+    # Run uvicorn on 0.0.0.0 to bind to all network interfaces
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
+
