@@ -18,10 +18,10 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Configure standard CORSMiddleware using regex to dynamically allow any HTTP/HTTPS origin with credentials
+# Configure standard CORSMiddleware to allow requests from https://www.superegoagent.com
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex="https?://.*",
+    allow_origins=["https://www.superegoagent.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
