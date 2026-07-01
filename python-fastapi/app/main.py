@@ -18,16 +18,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Configure standard CORSMiddleware to allow requests from https://www.superegoagent.com
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=['https://www.superegoagent.com'],
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
-)
-
-# Custom performance profiling middleware
+# Custom performance profiling middleware — added before CORS so CORS runs outermost
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
@@ -35,6 +26,19 @@ async def add_process_time_header(request: Request, call_next):
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = f"{process_time:.4f}s"
     return response
+
+# CORSMiddleware must be added LAST so it is executed FIRST (FastAPI reverses middleware order).
+# This ensures preflight OPTIONS requests are intercepted and responded to before any other
+# middleware or route handler runs, preventing 502s on cross-origin requests.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://www.superegoagent.com"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allow_headers=["*"],
+    expose_headers=["X-Process-Time"],
+    max_age=600,
+)
 
 # General global exception handlers to make endpoints super resilient
 @app.exception_handler(Exception)
