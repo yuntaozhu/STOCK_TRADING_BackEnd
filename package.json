@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3000 --app-dir python-fastapi",
     "build": "echo 'No build step needed for python backend'",
-    "start": "python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3000 --app-dir python-fastapi",
+    "start": "python3 -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3000} --app-dir python-fastapi",
     "clean": "rm -rf dist server.js",
     "lint": "echo 'No lint step needed for python backend'"
   },
