@@ -31,5 +31,5 @@ RUN python -m compileall app/
 EXPOSE $PORT
 
 # Command to run the service in standard production mode
-CMD ["python", "-m", "app.main"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3000"]
 
