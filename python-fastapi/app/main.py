@@ -3,6 +3,24 @@ import sys
 import time
 import traceback
 
+# Print initial diagnostics immediately on module load to aid in remote troubleshooting
+print("==================================================", flush=True)
+print("FASTAPI BACKEND: BOOTSTRAPPING MODULE LOAD...", flush=True)
+print(f"Python Executable: {sys.executable}", flush=True)
+print(f"Python Version: {sys.version}", flush=True)
+print(f"Working Directory: {os.getcwd()}", flush=True)
+
+# Securely print non-sensitive environment variables to assist with port and key audits
+safe_env = {}
+for k, v in os.environ.items():
+    kl = k.lower()
+    if any(secret_term in kl for secret_term in ["key", "secret", "pass", "token", "auth"]):
+        safe_env[k] = "********"
+    else:
+        safe_env[k] = v
+print(f"Safe Environment Configuration: {safe_env}", flush=True)
+print("==================================================", flush=True)
+
 # Dynamic sys.path inclusion to prevent ModuleNotFoundError in diverse deployment environments (like Railway, Docker, or Vercel)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -153,11 +171,15 @@ if __name__ == "__main__":
     port = int(port_cleaned) if port_cleaned else 3000
     print(f"Booting uvicorn on 0.0.0.0:{port}...", flush=True)
     try:
-        # We pass the instantiated 'app' object directly instead of a string import path
-        # to guarantee 100% path resolution safety in nested docker or cloud run contexts.
+        print(f"Attempting to run uvicorn with direct app object on 0.0.0.0:{port}...", flush=True)
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
     except Exception as run_err:
-        print("FATAL ERROR during uvicorn runner execution:", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        sys.exit(1)
+        print(f"Direct app object run failed, falling back to string format: {run_err}", file=sys.stderr)
+        try:
+            print(f"Attempting to run uvicorn with string 'app.main:app' on 0.0.0.0:{port}...", flush=True)
+            uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="info")
+        except Exception as run_err2:
+            print("FATAL ERROR during all uvicorn runner attempts:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            sys.exit(1)
 
