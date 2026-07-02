@@ -30,14 +30,14 @@ def get_sources_path():
 
 def get_cache_path():
     for p in [
-        "/investment-news/data_cache.json",
-        os.path.join(os.getcwd(), "..", "investment-news", "data_cache.json"),
         os.path.join(os.getcwd(), "investment-news", "data_cache.json"),
-        "investment-news/data_cache.json"
+        "investment-news/data_cache.json",
+        os.path.join(os.getcwd(), "..", "investment-news", "data_cache.json"),
+        "/investment-news/data_cache.json"
     ]:
-        # Return path even if not exists, so we can write to it
-        return p
-    return "/investment-news/data_cache.json"
+        if os.path.exists(p) or os.path.exists(os.path.dirname(p)):
+            return p
+    return "investment-news/data_cache.json"
 
 def strip_html(s):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", s or "")).strip()
