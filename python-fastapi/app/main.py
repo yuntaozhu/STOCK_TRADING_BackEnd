@@ -165,10 +165,10 @@ app.include_router(api_router)
 if __name__ == "__main__":
     import uvicorn
     import os
-    port_str = os.environ.get("PORT", "3000")
+    port_str = os.environ.get("PORT", "8000")
     # Clean any non-digit characters just in case
     port_cleaned = "".join(c for c in port_str if c.isdigit())
-    port = int(port_cleaned) if port_cleaned else 3000
+    port = int(port_cleaned) if port_cleaned else 8000
     print(f"Booting uvicorn on 0.0.0.0:{port}...", flush=True)
     try:
         print(f"Attempting to run uvicorn with direct app object on 0.0.0.0:{port}...", flush=True)
