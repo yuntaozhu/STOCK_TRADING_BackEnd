@@ -1,4 +1,6 @@
+import logging
 import time
+logging.basicConfig(level=logging.DEBUG)
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -16,6 +18,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+print("✅ FastAPI app created")
 
 # Custom performance profiling middleware — added before CORS so CORS runs outermost
 @app.middleware("http")
@@ -93,11 +96,13 @@ def api_health_check():
 # Router import is deferred here (not at module level) to avoid blocking startup
 # while heavy service dependencies are resolved. A fallback catch-all is registered
 # if the import fails so the app still responds to healthchecks.
+print("🔄 Starting router import...")
 try:
     from app.routers.api import router as api_router
     app.include_router(api_router)
+    print("✅ Router imported successfully")
 except Exception as e:
-    print(f"Warning: Failed to import API router: {e}")
+    print(f"❌ Router import failed: {e}")
     from fastapi import APIRouter
     fallback_router = APIRouter()
 
@@ -106,6 +111,8 @@ except Exception as e:
         return {"error": "API router failed to load", "detail": str(e), "path": f"/api/{path}"}
 
     app.include_router(fallback_router)
+
+print("✅ Application fully initialized and ready")
 
 if __name__ == "__main__":
     import uvicorn
