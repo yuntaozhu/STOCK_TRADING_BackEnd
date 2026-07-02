@@ -126,5 +126,5 @@ if __name__ == "__main__":
     port_cleaned = "".join(c for c in port_str if c.isdigit())
     port = int(port_cleaned) if port_cleaned else 3000
     # Run uvicorn on 0.0.0.0 to bind to all network interfaces
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="info")
 

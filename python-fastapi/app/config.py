@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # API Keys
-    IWENCAI_API_KEY: str = Field(default="", env="IWENCAI_API_KEY")
-    IWENCAI_BASE_URL: str = Field(default="https://openapi.iwencai.com", env="IWENCAI_BASE_URL")
+    IWENCAI_API_KEY: str = Field(default="", validation_alias="IWENCAI_API_KEY")
+    IWENCAI_BASE_URL: str = Field(default="https://openapi.iwencai.com", validation_alias="IWENCAI_BASE_URL")
     
     # Eastmoney Limiter Settings
     EM_MIN_INTERVAL: float = 1.0  # seconds between calls to avoid ban
