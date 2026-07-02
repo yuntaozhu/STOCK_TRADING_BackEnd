@@ -30,17 +30,36 @@ app = FastAPI(
 )
 
 # Configure standard CORSMiddleware to allow requests from https://www.superegoagent.com, and local development/preview tools
+# We dynamically pull origins from environment variables (like ALLOWED_ORIGINS, FRONTEND_URL, or APP_URL) for ultimate flexibility.
+origins = [
+    "https://www.superegoagent.com",
+    "https://ais-dev-c3egle4pei5oenap2a4olb-21133040686.us-west2.run.app",
+    "https://ais-pre-c3egle4pei5oenap2a4olb-21133040686.us-west2.run.app",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+
+# Read ALLOWED_ORIGINS env variable (supports comma-separated values)
+allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "")
+if allowed_origins_env:
+    for origin in allowed_origins_env.split(","):
+        clean_origin = origin.strip()
+        if clean_origin and clean_origin not in origins:
+            origins.append(clean_origin)
+
+# Read other common frontend/app URL env variables
+for env_name in ["FRONTEND_URL", "APP_URL"]:
+    val = os.environ.get(env_name, "")
+    if val:
+        clean_val = val.strip().rstrip("/")
+        if clean_val and clean_val not in origins:
+            origins.append(clean_val)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://www.superegoagent.com",
-        "https://ais-dev-c3egle4pei5oenap2a4olb-21133040686.us-west2.run.app",
-        "https://ais-pre-c3egle4pei5oenap2a4olb-21133040686.us-west2.run.app",
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],
