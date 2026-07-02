@@ -76,6 +76,19 @@ def health_check():
         "timestamp": time.time()
     }
 
+@app.get("/api/fastapi-health", tags=["General"])
+def api_health_check():
+    """
+    FastAPI health check endpoint for frontend clients.
+    Returns the health status of the API service.
+    """
+    return {
+        "status": "healthy",
+        "service": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "timestamp": time.time()
+    }
+
 # Bind our core api routers containing 28 modules and calculations
 # Router import is deferred here (not at module level) to avoid blocking startup
 # while heavy service dependencies are resolved. A fallback catch-all is registered
