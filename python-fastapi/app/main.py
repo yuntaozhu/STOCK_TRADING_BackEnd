@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import traceback
 
 # Dynamic sys.path inclusion to prevent ModuleNotFoundError in diverse deployment environments (like Railway, Docker, or Vercel)
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -10,11 +11,16 @@ if parent_dir not in sys.path:
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from fastapi import FastAPI, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from app.config import settings
-from app.routers.api import router as api_router
+try:
+    from fastapi import FastAPI, Request, status
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import JSONResponse
+    from app.config import settings
+    from app.routers.api import router as api_router
+except Exception as err:
+    print("FATAL ERROR during FastAPI backend module imports:", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -145,8 +151,13 @@ if __name__ == "__main__":
     # Clean any non-digit characters just in case
     port_cleaned = "".join(c for c in port_str if c.isdigit())
     port = int(port_cleaned) if port_cleaned else 3000
-    # Run uvicorn on 0.0.0.0 to bind to all network interfaces
-    # We pass the instantiated 'app' object directly instead of a string import path
-    # to guarantee 100% path resolution safety in nested docker or cloud run contexts.
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    print(f"Booting uvicorn on 0.0.0.0:{port}...", flush=True)
+    try:
+        # We pass the instantiated 'app' object directly instead of a string import path
+        # to guarantee 100% path resolution safety in nested docker or cloud run contexts.
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    except Exception as run_err:
+        print("FATAL ERROR during uvicorn runner execution:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
 
