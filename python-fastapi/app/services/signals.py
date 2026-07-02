@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 from datetime import datetime, date, timedelta
 from pathlib import Path
+from typing import Optional
 from app.core.limiter import em_get, eastmoney_datacenter
 from app.services.base import clean_code
 
@@ -137,16 +138,20 @@ class SignalsService:
             return []
 
     @staticmethod
-    def get_dragon_tiger_board(code: str, trade_date: str, look_back: int = 30) -> dict:
+    def get_dragon_tiger_board(code: str, trade_date: Optional[str] = None, look_back: int = 30) -> dict:
         """
         Aggregates Dragon-Tiger board appearances, buy/sell seats, and institutional volume.
         """
         cleaned = clean_code(code)
+        if not trade_date:
+            trade_date = date.today().strftime("%Y-%m-%d")
         try:
             start = datetime.strptime(trade_date, "%Y-%m-%d") - timedelta(days=look_back)
             start_str = start.strftime("%Y-%m-%d")
-        except ValueError:
-            start_str = (datetime.now() - timedelta(days=look_back)).strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            trade_date = date.today().strftime("%Y-%m-%d")
+            start = datetime.now() - timedelta(days=look_back)
+            start_str = start.strftime("%Y-%m-%d")
 
         # 1. Historical appearance list
         records = []
@@ -218,11 +223,13 @@ class SignalsService:
         return {"records": records, "seats": seats, "institution": institution}
 
     @staticmethod
-    def get_lockup_expiry(code: str, trade_date: str, forward_days: int = 90) -> dict:
+    def get_lockup_expiry(code: str, trade_date: Optional[str] = None, forward_days: int = 90) -> dict:
         """
         Retrieves historical and upcoming stock lockup expiries.
         """
         cleaned = clean_code(code)
+        if not trade_date:
+            trade_date = date.today().strftime("%Y-%m-%d")
         # Historical expiries
         history_data = eastmoney_datacenter(
             "RPT_LIFT_STAGE",
@@ -243,7 +250,8 @@ class SignalsService:
         try:
             end_date = datetime.strptime(trade_date, "%Y-%m-%d") + timedelta(days=forward_days)
             end_str = end_date.strftime("%Y-%m-%d")
-        except ValueError:
+        except (ValueError, TypeError):
+            trade_date = date.today().strftime("%Y-%m-%d")
             end_str = (datetime.now() + timedelta(days=forward_days)).strftime("%Y-%m-%d")
 
         upcoming_data = eastmoney_datacenter(

@@ -28,6 +28,12 @@ import {
   RefreshCw,
   Globe,
   Sparkles,
+  Activity,
+  AlertCircle,
+  CheckCircle2,
+  ShieldAlert,
+  Info,
+  FileJson,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -202,10 +208,137 @@ const MOCK_DATA_MAP: Record<string, any> = {
   }
 };
 
+interface LogEntry {
+  id: string;
+  timestamp: string;
+  type: "success" | "failure" | "system";
+  method: string;
+  url: string;
+  status: number | string;
+  latency: number;
+  message: string;
+}
+
 export default function App() {
   const [selectedStock, setSelectedStock] = useState("688017");
   const [customCode, setCustomCode] = useState("");
   const [activeTab, setActiveTab] = useState("market");
+
+  // Logging and Diagnostics states
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logSearchQuery, setLogSearchQuery] = useState("");
+  const [activeLogType, setActiveLogType] = useState<"all" | "success" | "failure" | "system">("all");
+  const [selectedLogDetail, setSelectedLogDetail] = useState<string | null>(null);
+
+  // Connectivity diagnostics state
+  const [pinging, setPinging] = useState(false);
+  const [pingResult, setPingResult] = useState<{
+    status: "connected" | "failed";
+    latency: number;
+    timestamp: string;
+    url: string;
+  } | null>(null);
+  const [copiedBundle, setCopiedBundle] = useState(false);
+
+  // Mutable ref for addLog to bypass React closure limitations inside useEffect
+  const addLogRef = React.useRef<(entry: Omit<LogEntry, "id" | "timestamp">) => void>(() => {});
+  addLogRef.current = (entry) => {
+    const newEntry: LogEntry = {
+      ...entry,
+      id: Math.random().toString(36).substring(2, 11),
+      timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false }) + "." + String(new Date().getMilliseconds()).padStart(3, "0")
+    };
+    setLogs((prev) => [newEntry, ...prev].slice(0, 500));
+  };
+
+  // Global fetch interceptor setup
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlString = typeof input === "string" ? input : (input instanceof URL ? input.href : input.url);
+      const method = init?.method || "GET";
+      const startTime = performance.now();
+      
+      try {
+        const response = await originalFetch(input, init);
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        const status = response.status;
+        
+        addLogRef.current({
+          type: response.ok ? "success" : "failure",
+          method,
+          url: urlString,
+          status,
+          latency,
+          message: response.ok ? "请求成功" : `请求失败 (HTTP ${status})`
+        });
+        
+        return response;
+      } catch (error: any) {
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
+        addLogRef.current({
+          type: "failure",
+          method,
+          url: urlString,
+          status: "NETWORK_ERROR",
+          latency,
+          message: error?.message || "网络请求异常/跨域策略限制 (CORS)"
+        });
+        
+        throw error;
+      }
+    };
+    
+    // Log system diagnostics activation
+    addLogRef.current({
+      type: "system",
+      method: "SYS",
+      url: "system-init",
+      status: "ACTIVE",
+      latency: 0,
+      message: "实时网络请求拦截器已激活！正在实时精确测量与截获终端全量数据吞吐..."
+    });
+    
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, []);
+
+  // Track and log tab switch operations automatically
+  useEffect(() => {
+    addLogRef.current({
+      type: "system",
+      method: "TAB",
+      url: `switch-tab/${activeTab}`,
+      status: "INFO",
+      latency: 0,
+      message: `用户切换工作区至标签: 【${
+        activeTab === "market" ? "行情层" :
+        activeTab === "reports" ? "研报层" :
+        activeTab === "signals" ? "信号层" :
+        activeTab === "capital" ? "资金筹码层" :
+        activeTab === "news" ? "新闻/公告层" :
+        activeTab === "global-investment-news" ? "全球投研资讯" :
+        activeTab === "fastapi" ? "FastAPI部署包" : "系统诊断"
+      }】`
+    });
+  }, [activeTab]);
+
+  // Track and log target stock change operations automatically
+  useEffect(() => {
+    addLogRef.current({
+      type: "system",
+      method: "STK",
+      url: `select-stock/${selectedStock}`,
+      status: "INFO",
+      latency: 0,
+      message: `系统分析标的目标变更，当前加载 A股代码: ${selectedStock}`
+    });
+  }, [selectedStock]);
   
   // Real-time states loaded from our node proxies
   const [liveQuote, setLiveQuote] = useState<any>(null);
@@ -762,6 +895,18 @@ export default function App() {
           >
             <Server className="w-4 h-4 shrink-0 text-[#1A1A1A] animate-pulse" />
             <span className="font-semibold">FastAPI/Railway 部署包</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("diagnostics")}
+            className={`flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all w-full text-left whitespace-nowrap border cursor-pointer ${
+              activeTab === "diagnostics"
+                ? "bg-white text-red-700 border-[1.5px] border-red-700 shadow-[4px_4px_0px_rgba(185,28,28,0.15)]"
+                : "text-[#1A1A1A]/80 hover:text-red-700 border border-[#1A1A1A]/30 bg-white/50 hover:bg-red-50/40"
+            }`}
+          >
+            <Activity className="w-4 h-4 shrink-0 text-red-600 animate-pulse" />
+            <span className="font-semibold">系统运行日志 (Diagnostics)</span>
           </button>
         </aside>
 
@@ -1754,6 +1899,488 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </motion.div>
+            )}
+
+            {/* TAB: DIAGNOSTICS & RUNTIME LOGS */}
+            {activeTab === "diagnostics" && (
+              <motion.div
+                key="diagnostics"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {/* Header block */}
+                <div>
+                  <h3 className="text-xl font-serif font-bold text-[#1A1A1A] flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-red-600 animate-pulse" />
+                    系统日志与一体化连通性诊断工作台
+                  </h3>
+                  <p className="text-xs text-zinc-500 mt-1 font-medium">
+                    由 A-Stock 实时拦截器 (Live Interceptor) 驱动，精准嗅探拦截每一次 HTTP/API 交换与系统关键流转，配备了专业的延迟诊断仪和一键 AI 报告包。
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  
+                  {/* Left Column - Diagnostics Tools (5 Cols) */}
+                  <div className="lg:col-span-5 space-y-6">
+                    
+                    {/* Tool 1: 一键连通性测试 (Connectivity Diagnostics) */}
+                    <div className="bg-white p-5 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A] space-y-4">
+                      <div className="border-b border-[#1A1A1A]/10 pb-3 flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider flex items-center gap-1.5">
+                          <Cpu className="w-4 h-4 text-[#1A1A1A]" />
+                          连通性时延测试
+                        </h4>
+                        <span className="text-[9px] font-mono font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                          PING & SECRETS
+                        </span>
+                      </div>
+
+                      {/* Diagnostic details */}
+                      <div className="space-y-2.5 text-xs">
+                        <div className="flex justify-between items-center py-1.5 border-b border-[#1A1A1A]/5">
+                          <span className="text-zinc-500">检测目标 URL</span>
+                          <span className="font-mono text-[11px] text-[#1A1A1A] max-w-[180px] truncate" title={cleanBaseUrl || "Local Express Hub"}>
+                            {cleanBaseUrl || "http://localhost:3000 (本地)"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center py-1.5 border-b border-[#1A1A1A]/5">
+                          <span className="text-zinc-500">网关运行状态</span>
+                          <span className="flex items-center gap-1.5 font-bold">
+                            {apiConnectionStatus === "testing" && (
+                              <span className="text-amber-600 flex items-center gap-1 animate-pulse">
+                                <RefreshCw className="w-3 h-3 animate-spin" /> 检测中...
+                              </span>
+                            )}
+                            {apiConnectionStatus === "connected" && (
+                              <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[10px] flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                                🟢 生产在线
+                              </span>
+                            )}
+                            {apiConnectionStatus === "fallback" && (
+                              <span className="text-zinc-600 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded text-[10px] flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+                                ⚪ 沙盒模拟
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        
+                        {/* Supabase config display */}
+                        <div className="py-2 px-3 bg-[#EFECE8] rounded-lg border border-[#1A1A1A]/10 space-y-2 mt-2">
+                          <div className="flex items-center gap-1.5">
+                            <Database className="w-3.5 h-3.5 text-zinc-500" />
+                            <span className="font-bold text-[11px] text-[#1A1A1A]">Supabase 云同步配置层</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                            <div>
+                              <div className="text-zinc-400">SUPABASE_URL</div>
+                              <div className="text-[#1A1A1A] truncate max-w-[130px]" title={((import.meta as any).env?.VITE_SUPABASE_URL) || "未配置"}>
+                                {((import.meta as any).env?.VITE_SUPABASE_URL) || "未检测到 (本地沙盒)"}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-zinc-400">SUPABASE_KEY</div>
+                              <div className="text-[#1A1A1A]">
+                                {((import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ? "已检测 (安全屏蔽)" : "未检测到"}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="h-px bg-[#1A1A1A]/10 my-1" />
+                          <div className="flex justify-between items-center text-[10px] font-medium text-zinc-600">
+                            <span>数据同步模式:</span>
+                            <span className="font-bold text-[#1A1A1A]">
+                              {((import.meta as any).env?.VITE_SUPABASE_URL) ? "🟢 云端同步层已就绪" : "⚪ 单机 LocalStorage 缓存层"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Ping Button */}
+                      <button
+                        onClick={async () => {
+                          setPinging(true);
+                          const start = performance.now();
+                          const testUrl = `${cleanBaseUrl}/api/health`;
+                          
+                          addLogRef.current({
+                            type: "system",
+                            method: "DIAG",
+                            url: "ping-backend",
+                            status: "START",
+                            latency: 0,
+                            message: `启动手动连通性时延测试, 目标地址: ${testUrl}`
+                          });
+                          
+                          try {
+                            const res = await fetch(testUrl);
+                            const end = performance.now();
+                            const latency = Math.round(end - start);
+                            
+                            setPingResult({
+                              status: res.ok ? "connected" : "failed",
+                              latency,
+                              timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
+                              url: testUrl
+                            });
+                            
+                            addLogRef.current({
+                              type: "system",
+                              method: "DIAG",
+                              url: "ping-backend",
+                              status: res.ok ? "200" : res.status,
+                              latency,
+                              message: `手动时延检测完成: 目标返回 ${res.ok ? "200 OK" : `HTTP ${res.status}`}, 实际网关往返时延为 ${latency}ms`
+                            });
+                          } catch (err: any) {
+                            const end = performance.now();
+                            const latency = Math.round(end - start);
+                            
+                            setPingResult({
+                              status: "failed",
+                              latency,
+                              timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
+                              url: testUrl
+                            });
+                            
+                            addLogRef.current({
+                              type: "system",
+                              method: "DIAG",
+                              url: "ping-backend",
+                              status: "NETWORK_ERROR",
+                              latency,
+                              message: `手动连通性诊断失败: ${err?.message || "网络路由不通或被跨域策略 (CORS) 阻止"}`
+                            });
+                          } finally {
+                            setPinging(false);
+                          }
+                        }}
+                        disabled={pinging}
+                        className="w-full py-2.5 bg-[#1A1A1A] text-white text-xs font-serif font-bold rounded-lg border border-[#1A1A1A] hover:bg-neutral-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-[2px_2px_0px_rgba(0,0,0,0.15)] disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${pinging ? "animate-spin" : ""}`} />
+                        {pinging ? "正在发起延迟探针..." : "一键检测后端延迟 (Ping Backend)"}
+                      </button>
+
+                      {/* Ping Result card */}
+                      {pingResult && (
+                        <div className={`p-3 rounded-lg border text-xs space-y-1 ${
+                          pingResult.status === "connected"
+                            ? "bg-emerald-50/50 border-emerald-200 text-emerald-800"
+                            : "bg-red-50/50 border-red-200 text-red-800"
+                        }`}>
+                          <div className="flex justify-between items-center font-bold">
+                            <span className="flex items-center gap-1">
+                              {pingResult.status === "connected" ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                              )}
+                              {pingResult.status === "connected" ? "连接诊断正常" : "连接诊断失败"}
+                            </span>
+                            <span className="font-mono text-[10px]">{pingResult.timestamp}</span>
+                          </div>
+                          <p className="text-[10px] leading-relaxed break-all">
+                            诊断网关 <b>{pingResult.url}</b>，在 {pingResult.timestamp} 时段的往返检测时延为 <b className="font-mono underline">{pingResult.latency}ms</b>。
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tool 2: AI 调试诊断包 (AI Troubleshooting Bundle Exporter) */}
+                    <div className="bg-white p-5 rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A] space-y-4">
+                      <div className="border-b border-[#1A1A1A]/10 pb-3 flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider flex items-center gap-1.5">
+                          <Sparkles className="w-4 h-4 text-[#1A1A1A]" />
+                          AI 调试诊断包打包导出
+                        </h4>
+                        <span className="text-[9px] font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                          AI EXPORTER
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-zinc-600 leading-relaxed">
+                        一键将当前客户端运行环境、网络拓扑、拦截器捕获的最近 20 条日志封装为格式精美的 Markdown 调试报告，并为您自动配置了引导大模型 (如 Claude, Gemini) 进行排障的专家提示词前缀。
+                      </p>
+
+                      <button
+                        onClick={() => {
+                          const timeStr = new Date().toLocaleString("zh-CN", { hour12: false });
+                          const ua = navigator.userAgent;
+                          const width = window.innerWidth;
+                          const height = window.innerHeight;
+                          const targetBase = cleanBaseUrl || "http://localhost:3000";
+                          const pResStr = pingResult 
+                            ? `${pingResult.latency}ms (${pingResult.status === "connected" ? "SUCCESS" : "FAILED"})` 
+                            : "尚未进行时延测试";
+                          
+                          const supabaseUrl = ((import.meta as any).env?.VITE_SUPABASE_URL) || "未检测到";
+                          const supabaseKey = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ? "已检测 (安全掩码掩盖)" : "未检测到";
+                          const syncMode = ((import.meta as any).env?.VITE_SUPABASE_URL) ? "云端多端同步 (Supabase Cloud)" : "单机 LocalStorage 隔离缓存层";
+
+                          // Prepare recent 20 logs table
+                          const logsToExport = logs.slice(0, 20);
+                          let logsTableMarkdown = "| 记录时间 | 日志类型 | 方法 | 端点事件 / 目标路由 | 返回状态 | 时延(ms) | 详细描述 / 返回文本 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n";
+                          if (logsToExport.length === 0) {
+                            logsTableMarkdown += "| - | - | - | 拦截器暂无拦截记录 | - | - | - |\n";
+                          } else {
+                            logsToExport.forEach((l) => {
+                              logsTableMarkdown += `| ${l.timestamp} | ${l.type.toUpperCase()} | ${l.method} | ${l.url} | ${l.status} | ${l.latency} | ${l.message} |\n`;
+                            });
+                          }
+
+                          const report = `# 🛠️ A-Share 金融终端全系统运行日志与 AI 调试诊断包
+
+## 📌 诊断环境元数据 (Client Metadata)
+- **报告生成时间**: \`${timeStr}\`
+- **目标后端 API 根路径**: \`${targetBase}\`
+- **当前选定标的代码**: \`${selectedStock}\`
+- **客户端 User-Agent**: \`${ua}\`
+- **屏幕可用分辨率**: \`${width}x${height} px\`
+
+## 📡 生产网关拓扑与云数据同步层
+- **时延检测 (Ping Latency)**: \`${pResStr}\`
+- **网关连通性判定**: \`${apiConnectionStatus === "connected" ? "🟢 CONNECTED (公网连通)" : "⚪ FALLBACK (沙盒高保真模式)"}\`
+- **Supabase 云同步配置状态**:
+  - \`VITE_SUPABASE_URL\`: \`${supabaseUrl}\`
+  - \`VITE_SUPABASE_ANON_KEY\`: \`${supabaseKey}\`
+  - \`数据隔离模式\`: \`${syncMode}\`
+
+## 📝 拦截器日志流追踪表 (最近 20 条 API 与系统操作)
+${logsTableMarkdown}
+
+---
+
+## 🤖 AI 排障诊断专家指令 (Send this block directly to AI Assistant)
+> [!IMPORTANT]
+> **请作为 A 股金融数据终端的资深全栈架构师和云原生运维专家，参考上面的运行环境元数据、网关拓扑状态和拦截器捕获的实时运行日志，开展极速会诊：**
+> 1. **定位故障点**：检查最近的 API 请求中是否存在大量的 \`NETWORK_ERROR\`（多为跨域策略或主机离线）、\`502 Bad Gateway\`（多为容器未运行或反代路径不对）或 \`500\`（服务端逻辑崩塌）。
+> 2. **剖析底层成因**：结合 API Base 路径及 Supabase 配置，深度分析为何客户端无法跑通真实链路（例如：FastAPI 在 Railway 部署时由于 Dockerfile 中 PORT 变量未对齐、跨域配置未注册客户端 Origins 或者是 Supabase 云同步层未配全）。
+> 3. **输出排障路线图**：给出包含 1, 2, 3 个极简步骤的解决草案，并提供需要修改的文件片段（如 FastAPI \`main.py\`、\.env\ 等），引导用户完成 100% 部署链路自愈。`;
+
+                          navigator.clipboard.writeText(report);
+                          setCopiedBundle(true);
+                          setTimeout(() => setCopiedBundle(false), 2500);
+
+                          addLogRef.current({
+                            type: "system",
+                            method: "COPY",
+                            url: "export-ai-bundle",
+                            status: "SUCCESS",
+                            latency: 0,
+                            message: "用户一键打包并复制了全系统 AI 调试诊断报告！即将投递给 AI 大模型排障..."
+                          });
+                        }}
+                        className="w-full py-2.5 bg-[#EFECE8] text-[#1A1A1A] text-xs font-serif font-bold rounded-lg border border-[#1A1A1A] hover:bg-neutral-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-[2px_2px_0px_#1A1A1A]"
+                      >
+                        {copiedBundle ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            已成功打包并复制到剪贴板！
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            打包并复制 AI 诊断报告
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                  </div>
+
+                  {/* Right Column - Live Log Interceptor Stream (7 Cols) */}
+                  <div className="lg:col-span-7 bg-white rounded-xl border-[1.5px] border-[#1A1A1A] shadow-[4px_4px_0px_#1A1A1A] overflow-hidden flex flex-col h-[540px]">
+                    
+                    {/* Interceptor Header & Filter */}
+                    <div className="bg-[#EFECE8] p-4 border-b-[1.5px] border-[#1A1A1A] shrink-0 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-red-600 animate-pulse" />
+                          <h4 className="text-xs font-bold text-[#1A1A1A] uppercase tracking-wider font-mono">
+                            实时网络请求拦截器 (Live Log Interceptor)
+                          </h4>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setLogs([]);
+                            addLogRef.current({
+                              type: "system",
+                              method: "CLR",
+                              url: "clear-logs",
+                              status: "OK",
+                              latency: 0,
+                              message: "日志系统由用户手动清空。"
+                            });
+                          }}
+                          className="text-[10px] font-bold text-zinc-500 hover:text-red-700 font-mono hover:underline cursor-pointer"
+                        >
+                          [CLEAR ALL]
+                        </button>
+                      </div>
+
+                      {/* Filter category row and search box */}
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        
+                        {/* Categories tabs */}
+                        <div className="flex bg-white/70 border border-[#1A1A1A]/30 rounded p-0.5 shrink-0 font-mono text-[10px]">
+                          {(["all", "success", "failure", "system"] as const).map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => setActiveLogType(t)}
+                              className={`px-2 py-1 rounded transition-all font-bold cursor-pointer ${
+                                activeLogType === t
+                                  ? "bg-[#1A1A1A] text-white shadow-sm"
+                                  : "text-zinc-600 hover:text-[#1A1A1A]"
+                              }`}
+                            >
+                              {t === "all" && "全部"}
+                              {t === "success" && "成功"}
+                              {t === "failure" && "失败"}
+                              {t === "system" && "提示"}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Real-time search box */}
+                        <div className="flex-1 relative">
+                          <Search className="w-3 h-3 text-[#1A1A1A]/50 absolute left-2 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={logSearchQuery}
+                            onChange={(e) => setLogSearchQuery(e.target.value)}
+                            placeholder="检索过滤端点 URL 或日志内容..."
+                            className="w-full bg-white pl-7 pr-2 py-1 border border-[#1A1A1A]/30 rounded text-[10px] font-mono focus:outline-none focus:ring-0 placeholder:text-zinc-400"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Logs Stream (scrollable tape) */}
+                    <div className="flex-1 overflow-y-auto p-3 bg-zinc-50 font-mono text-[10px] leading-relaxed space-y-2 select-text selection:bg-neutral-200">
+                      {(() => {
+                        const filtered = logs.filter((l) => {
+                          // Filter by type
+                          if (activeLogType !== "all" && l.type !== activeLogType) return false;
+                          // Filter by search query
+                          const query = logSearchQuery.toLowerCase();
+                          if (!query) return true;
+                          return (
+                            l.url.toLowerCase().includes(query) ||
+                            l.message.toLowerCase().includes(query) ||
+                            l.method.toLowerCase().includes(query) ||
+                            String(l.status).toLowerCase().includes(query)
+                          );
+                        });
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="h-full flex flex-col items-center justify-center text-zinc-400 py-12">
+                              <Info className="w-6 h-6 mb-1.5 stroke-1" />
+                              <span>暂无匹配该过滤条件的拦截日志。</span>
+                            </div>
+                          );
+                        }
+
+                        return filtered.map((log) => {
+                          const isSuccess = log.type === "success";
+                          const isFailure = log.type === "failure";
+                          const isSystem = log.type === "system";
+                          const isExpanded = selectedLogDetail === log.id;
+
+                          return (
+                            <div
+                              key={log.id}
+                              className={`p-2.5 rounded border transition-all ${
+                                isSuccess ? "bg-white border-zinc-200 hover:border-emerald-500 hover:shadow-sm" :
+                                isFailure ? "bg-red-50/40 border-red-100 hover:border-red-400" :
+                                "bg-zinc-100/50 border-zinc-200 hover:border-blue-400"
+                              }`}
+                            >
+                              <div 
+                                className="flex items-start justify-between gap-3 cursor-pointer"
+                                onClick={() => setSelectedLogDetail(isExpanded ? null : log.id)}
+                              >
+                                {/* Left timestamp & method */}
+                                <div className="flex items-center gap-1.5 shrink-0 select-none">
+                                  <span className="text-[9px] text-zinc-400 font-bold">{log.timestamp}</span>
+                                  <span className={`px-1 rounded text-[8px] font-bold ${
+                                    isSuccess ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
+                                    isFailure ? "bg-red-100 text-red-800 border border-red-300" :
+                                    "bg-blue-100 text-blue-800 border border-blue-200"
+                                  }`}>
+                                    {log.method}
+                                  </span>
+                                </div>
+
+                                {/* URL / Message details */}
+                                <div className="flex-1 min-w-0 font-mono text-zinc-700 break-all truncate hover:text-black text-left">
+                                  {isSystem ? log.message : log.url}
+                                </div>
+
+                                {/* Status & Latency */}
+                                <div className="flex items-center gap-2 shrink-0 select-none text-right">
+                                  {!isSystem && (
+                                    <span className="text-[9px] text-zinc-400">{log.latency}ms</span>
+                                  )}
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                    isSuccess ? "bg-emerald-500 text-white" :
+                                    isFailure ? "bg-red-600 text-white" :
+                                    "bg-zinc-800 text-white"
+                                  }`}>
+                                    {log.status}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Expanded Details Row */}
+                              {isExpanded && (
+                                <motion.div 
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: "auto" }}
+                                  className="mt-2 pt-2 border-t border-dashed border-zinc-200 text-[9px] text-zinc-500 space-y-1 text-left"
+                                >
+                                  <div>
+                                    <b className="text-zinc-700">唯一日志ID:</b> {log.id}
+                                  </div>
+                                  <div>
+                                    <b className="text-zinc-700">记录时间:</b> {log.timestamp}
+                                  </div>
+                                  <div>
+                                    <b className="text-zinc-700">拦截方法:</b> {log.method}
+                                  </div>
+                                  <div>
+                                    <b className="text-zinc-700">完整网络路径:</b> <span className="select-all bg-zinc-100 px-1 py-0.5 rounded break-all">{log.url}</span>
+                                  </div>
+                                  <div>
+                                    <b className="text-zinc-700">响应结果/动作描述:</b> <span className="text-[#1A1A1A] font-bold">{log.message}</span>
+                                  </div>
+                                  {!isSystem && (
+                                    <div>
+                                      <b className="text-zinc-700">耗时:</b> <span className="underline font-bold text-red-700">{log.latency}毫秒 (网络往返时延)</span>
+                                    </div>
+                                  )}
+                                </motion.div>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+
+                    {/* Footer Tape Ribbon */}
+                    <div className="bg-[#FAF9F6] p-2 px-4 border-t-[1.5px] border-[#1A1A1A] shrink-0 flex justify-between items-center text-[9px] font-mono text-zinc-400">
+                      <span>INTERCEPTOR CORE 3.2.3 • ACTIVE</span>
+                      <span>已截获事件数: {logs.length} 条</span>
+                    </div>
+
+                  </div>
+
+                </div>
               </motion.div>
             )}
 

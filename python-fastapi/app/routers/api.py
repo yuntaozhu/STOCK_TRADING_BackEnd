@@ -132,12 +132,12 @@ def get_fundflow_minute(code: str):
     return SignalsService.get_eastmoney_fund_flow_minute(code)
 
 @router.get("/signals/dragon-tiger", tags=["Signals"])
-def get_dragon_tiger(code: str, date: str, look_back: int = 30):
+def get_dragon_tiger(code: str, date: Optional[str] = None, look_back: int = 30):
     """个股近N日上榜原因、顶级营业部和机构席位资金净买额"""
     return SignalsService.get_dragon_tiger_board(code, date, look_back)
 
 @router.get("/signals/lockup", tags=["Signals"])
-def get_lockup_expiry(code: str, date: str, forward_days: int = 90):
+def get_lockup_expiry(code: str, date: Optional[str] = None, forward_days: int = 90):
     """限售解禁历史与未来 90 天待解禁预警日历"""
     return SignalsService.get_lockup_expiry(code, date, forward_days)
 
