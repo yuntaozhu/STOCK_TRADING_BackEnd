@@ -1,10 +1,20 @@
-import logging
+import os
+import sys
 import time
-logging.basicConfig(level=logging.DEBUG)
+
+# Dynamic sys.path inclusion to prevent ModuleNotFoundError in diverse deployment environments (like Railway, Docker, or Vercel)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
+from app.routers.api import router as api_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -18,9 +28,25 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
-print("✅ FastAPI app created")
 
-# Custom performance profiling middleware — added before CORS so CORS runs outermost
+# Configure standard CORSMiddleware to allow requests from https://www.superegoagent.com, and local development/preview tools
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://www.superegoagent.com",
+        "https://ais-dev-c3egle4pei5oenap2a4olb-21133040686.us-west2.run.app",
+        "https://ais-pre-c3egle4pei5oenap2a4olb-21133040686.us-west2.run.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+
+# Custom performance profiling middleware
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
@@ -28,19 +54,6 @@ async def add_process_time_header(request: Request, call_next):
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = f"{process_time:.4f}s"
     return response
-
-# CORSMiddleware must be added LAST so it is executed FIRST (FastAPI reverses middleware order).
-# This ensures preflight OPTIONS requests are intercepted and responded to before any other
-# middleware or route handler runs, preventing 502s on cross-origin requests.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://www.superegoagent.com"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
-    allow_headers=["*"],
-    expose_headers=["X-Process-Time"],
-    max_age=600,
-)
 
 # General global exception handlers to make endpoints super resilient
 @app.exception_handler(Exception)
@@ -70,54 +83,29 @@ def read_root():
     }
 
 @app.get("/health", tags=["General"])
+@app.get("/api/health", tags=["General"])
+@app.get("/api/fastapi-health", tags=["General"])
 def health_check():
     """
-    Railway Healthcheck probe. Keeps the container active and monitors backend readiness.
+    Comprehensive health check probe. Supports Railway, local diagnostics, and frontend monitoring.
     """
     return {
         "status": "healthy",
-        "timestamp": time.time()
-    }
-
-@app.get("/api/fastapi-health", tags=["General"])
-def api_health_check():
-    """
-    FastAPI health check endpoint for frontend clients.
-    Returns the health status of the API service.
-    """
-    return {
-        "status": "healthy",
+        "timestamp": time.time(),
         "service": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "timestamp": time.time()
     }
 
 # Bind our core api routers containing 28 modules and calculations
-# Router import is deferred here (not at module level) to avoid blocking startup
-# while heavy service dependencies are resolved. A fallback catch-all is registered
-# if the import fails so the app still responds to healthchecks.
-print("🔄 Starting router import...")
-try:
-    from app.routers.api import router as api_router
-    app.include_router(api_router)
-    print("✅ Router imported successfully")
-except Exception as e:
-    print(f"❌ Router import failed: {e}")
-    from fastapi import APIRouter
-    fallback_router = APIRouter()
-
-    @fallback_router.get("/api/{path:path}", tags=["Fallback"])
-    async def fallback(path: str):
-        return {"error": "API router failed to load", "detail": str(e), "path": f"/api/{path}"}
-
-    app.include_router(fallback_router)
-
-print("✅ Application fully initialized and ready")
+app.include_router(api_router)
 
 if __name__ == "__main__":
     import uvicorn
     import os
-    port = int(os.environ.get("PORT", 3000))
+    port_str = os.environ.get("PORT", "3000")
+    # Clean any non-digit characters just in case
+    port_cleaned = "".join(c for c in port_str if c.isdigit())
+    port = int(port_cleaned) if port_cleaned else 3000
     # Run uvicorn on 0.0.0.0 to bind to all network interfaces
     uvicorn.run(app, host="0.0.0.0", port=port)
 

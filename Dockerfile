@@ -3,6 +3,7 @@ FROM python:3.10-slim
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8000 \
     TZ=Asia/Shanghai
 
 WORKDIR /workspace

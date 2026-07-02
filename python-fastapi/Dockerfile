@@ -3,6 +3,7 @@ FROM python:3.10-slim
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8000 \
     TZ=Asia/Shanghai
 
 WORKDIR /app
@@ -30,5 +31,4 @@ RUN python -m compileall app/
 EXPOSE $PORT
 
 # Command to run the service in standard production mode
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3000}
-
+CMD ["python", "-m", "app.main"]
