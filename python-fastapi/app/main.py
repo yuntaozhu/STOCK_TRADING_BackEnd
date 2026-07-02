@@ -165,21 +165,49 @@ app.include_router(api_router)
 if __name__ == "__main__":
     import uvicorn
     import os
+    import sys
+    import traceback
+    import threading
+
+    # 1. Parse the main PORT environment variable
     port_str = os.environ.get("PORT", "8000")
-    # Clean any non-digit characters just in case
     port_cleaned = "".join(c for c in port_str if c.isdigit())
-    port = int(port_cleaned) if port_cleaned else 8000
-    print(f"Booting uvicorn on 0.0.0.0:{port}...", flush=True)
-    try:
-        print(f"Attempting to run uvicorn with direct app object on 0.0.0.0:{port}...", flush=True)
-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
-    except Exception as run_err:
-        print(f"Direct app object run failed, falling back to string format: {run_err}", file=sys.stderr)
+    port_env = int(port_cleaned) if port_cleaned else 8000
+
+    # 2. Define the target ports we should try to bind to
+    # We want to bind to port 8000 (standard web domain) and port_env (e.g., 5432 from TCP proxy)
+    ports_to_bind = [8000]
+    if port_env not in ports_to_bind:
+        ports_to_bind.append(port_env)
+
+    print(f"Detected ports to bind: {ports_to_bind}", flush=True)
+
+    def run_server(p: int):
+        print(f"Starting uvicorn server on 0.0.0.0:{p}...", flush=True)
         try:
-            print(f"Attempting to run uvicorn with string 'app.main:app' on 0.0.0.0:{port}...", flush=True)
-            uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="info")
-        except Exception as run_err2:
-            print("FATAL ERROR during all uvicorn runner attempts:", file=sys.stderr)
+            # We use "app.main:app" string format to avoid thread local or reload issues if any,
+            # but direct app object is also fine. Let's try direct object first, then fallback.
+            try:
+                uvicorn.run(app, host="0.0.0.0", port=p, log_level="info")
+            except Exception as e:
+                print(f"Direct app run failed on port {p}, trying string format fallback: {e}", flush=True)
+                uvicorn.run("app.main:app", host="0.0.0.0", port=p, log_level="info")
+        except Exception as err:
+            print(f"CRITICAL: Failed to run uvicorn server on port {p}: {err}", file=sys.stderr, flush=True)
             traceback.print_exc(file=sys.stderr)
-            sys.exit(1)
+
+    if len(ports_to_bind) > 1:
+        # Multi-port setup: run port 8000 in a background thread and port_env in the main thread
+        bg_port = ports_to_bind[0]
+        main_port = ports_to_bind[1]
+        print(f"Dual-port mode active. Main thread listening on port: {main_port}, background thread listening on port: {bg_port}", flush=True)
+        
+        bg_thread = threading.Thread(target=run_server, args=(bg_port,), daemon=True)
+        bg_thread.start()
+        
+        # Run the main environment port in the main thread
+        run_server(main_port)
+    else:
+        # Only one port to run on
+        run_server(ports_to_bind[0])
 
