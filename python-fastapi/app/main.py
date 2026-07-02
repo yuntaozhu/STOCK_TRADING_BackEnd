@@ -25,9 +25,29 @@ app = FastAPI(
         "资金面(融资融券+大宗交易+股东户数+分红+资金流分钟级+资金流120日)、新闻(东财个股+全球资讯)、"
         "基础数据(mootdx财务/F10+东财+新浪三表)、公告(巨潮)七层数据源。"
     ),
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None,  # Disable default docs so we can host CDN-resilient custom docs
+    redoc_url=None, # Disable default redoc so we can host CDN-resilient custom redoc
 )
+
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} - Swagger UI",
+        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+        swagger_js_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.9.0/swagger-ui-bundle.js",
+        swagger_css_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.9.0/swagger-ui.css",
+    )
+
+@app.get("/redoc", include_in_schema=False)
+async def custom_redoc_html():
+    return get_redoc_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} - ReDoc",
+        redoc_js_url="https://cdnjs.cloudflare.com/ajax/libs/redoc/2.1.3/redoc.standalone.js",
+    )
 
 # Configure standard CORSMiddleware to allow requests from https://www.superegoagent.com, and local development/preview tools
 # We dynamically pull origins from environment variables (like ALLOWED_ORIGINS, FRONTEND_URL, or APP_URL) for ultimate flexibility.
@@ -126,5 +146,7 @@ if __name__ == "__main__":
     port_cleaned = "".join(c for c in port_str if c.isdigit())
     port = int(port_cleaned) if port_cleaned else 3000
     # Run uvicorn on 0.0.0.0 to bind to all network interfaces
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="info")
+    # We pass the instantiated 'app' object directly instead of a string import path
+    # to guarantee 100% path resolution safety in nested docker or cloud run contexts.
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
