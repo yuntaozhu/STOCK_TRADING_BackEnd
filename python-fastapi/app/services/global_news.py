@@ -39,6 +39,28 @@ def get_cache_path():
             return p
     return "investment-news/data_cache.json"
 
+def get_llm_config_path():
+    for p in [
+        "/investment-news/llm.config.json",
+        os.path.join(os.getcwd(), "..", "investment-news", "llm.config.json"),
+        os.path.join(os.getcwd(), "investment-news", "llm.config.json"),
+        "investment-news/llm.config.json"
+    ]:
+        if os.path.exists(p):
+            return p
+    return None
+
+def get_data_js_path():
+    for p in [
+        "/investment-news/data.js",
+        os.path.join(os.getcwd(), "..", "investment-news", "data.js"),
+        os.path.join(os.getcwd(), "investment-news", "data.js"),
+        "investment-news/data.js"
+    ]:
+        if os.path.exists(p) or os.path.exists(os.path.dirname(p)):
+            return p
+    return "investment-news/data.js"
+
 def strip_html(s):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", s or "")).strip()
 
@@ -104,6 +126,105 @@ class GlobalNewsService:
         except Exception as e:
             print(f"[GlobalNewsService] Gemini API call failed: {e}")
             return ""
+
+    @classmethod
+    def call_custom_api(cls, system_prompt: str, user_prompt: str, cfg: dict) -> str:
+        api = cfg.get("api", {})
+        base_url = (api.get("base_url") or "https://api.deepseek.com").rstrip("/")
+        api_key = api.get("api_key") or os.environ.get(api.get("api_key_env", "LLM_API_KEY"), "")
+        model = api.get("model", "deepseek-chat")
+        
+        if not api_key:
+            print("[GlobalNewsService] No key specified in llm.config.json. Falling back to Gemini API.")
+            return cls.call_gemini(system_prompt, user_prompt)
+            
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "temperature": 0.3,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        }
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+        except Exception as e:
+            print(f"[GlobalNewsService] Custom API call failed: {e}. Falling back to Gemini API.")
+            return cls.call_gemini(system_prompt, user_prompt)
+
+    @classmethod
+    def call_claude_cli(cls, system_prompt: str, user_prompt: str) -> str:
+        import shutil
+        import tempfile
+        import subprocess
+        
+        binp = shutil.which("claude")
+        if not binp:
+            for d in ["/opt/homebrew/bin", "/usr/local/bin", os.path.expanduser("~/.local/bin"), os.path.expanduser("~/.claude/local")]:
+                c = os.path.join(d, "claude")
+                if os.path.exists(c):
+                    binp = c
+                    break
+        
+        if not binp:
+            print("[GlobalNewsService] claude CLI not found. Falling back to Gemini API.")
+            return cls.call_gemini(system_prompt, user_prompt)
+            
+        _disallow = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebFetch", "WebSearch", "TodoWrite", "Task", "NotebookEdit"]
+        
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
+                f.write(system_prompt)
+                sysf = f.name
+            
+            try:
+                p = subprocess.run(
+                    [binp, "-p", "--output-format", "text", "--system-prompt-file", sysf, "--disallowedTools", *_disallow],
+                    input=user_prompt, capture_output=True, text=True, timeout=120
+                )
+                if p.returncode == 0 and p.stdout:
+                    return p.stdout
+                else:
+                    print(f"[GlobalNewsService] claude CLI run failed (code {p.returncode}): {p.stderr}. Falling back to Gemini API.")
+                    return cls.call_gemini(system_prompt, user_prompt)
+            finally:
+                try:
+                    os.unlink(sysf)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[GlobalNewsService] Error running claude CLI: {e}. Falling back to Gemini API.")
+            return cls.call_gemini(system_prompt, user_prompt)
+
+    @classmethod
+    def call_llm(cls, system_prompt: str, user_prompt: str) -> str:
+        llm_path = get_llm_config_path()
+        cfg = {"provider": "claude-cli"}
+        if llm_path:
+            try:
+                with open(llm_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception as e:
+                print(f"[GlobalNewsService] Failed to load llm.config.json: {e}")
+                
+        provider = cfg.get("provider", "claude-cli")
+        print(f"[GlobalNewsService] Using LLM provider: {provider}")
+        
+        if provider == "api":
+            return cls.call_custom_api(system_prompt, user_prompt, cfg)
+        elif provider == "claude-cli":
+            return cls.call_claude_cli(system_prompt, user_prompt)
+        else:
+            return cls.call_gemini(system_prompt, user_prompt)
 
     @staticmethod
     def fetch_feed(src, per_source=6, cutoff=None, redline=[]):
@@ -254,6 +375,15 @@ class GlobalNewsService:
         except Exception as e:
             print(f"[GlobalNewsService] Failed to write cache: {e}")
 
+        # Write to data.js for the original HTML index.html
+        data_js_file = get_data_js_path()
+        try:
+            with open(data_js_file, "w", encoding="utf-8") as f:
+                f.write("// data.js —— 各行业源真实数据。由 API 接口刷新生成。\n")
+                f.write("window.DATA = " + json.dumps(data, ensure_ascii=False, indent=1) + ";\n")
+        except Exception as e:
+            print(f"[GlobalNewsService] Failed to write data.js: {e}")
+
         return data
 
     @classmethod
@@ -293,8 +423,8 @@ class GlobalNewsService:
             user_lines.append(f"{idx}. {item['title']} ({item.get('source', '')})")
         user_prompt = "\n".join(user_lines)
 
-        # Call Gemini
-        gemini_response = cls.call_gemini(system_prompt, user_prompt)
+        # Call LLM
+        gemini_response = cls.call_llm(system_prompt, user_prompt)
         if not gemini_response:
             return {"success": False, "error": "AI digestion failed"}
 
@@ -344,5 +474,14 @@ class GlobalNewsService:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"[GlobalNewsService] Failed to save updated cache: {e}")
+
+        # Write to data.js for the original HTML index.html
+        data_js_file = get_data_js_path()
+        try:
+            with open(data_js_file, "w", encoding="utf-8") as f:
+                f.write("// data.js —— 各行业源真实数据。由 API 接口刷新生成。\n")
+                f.write("window.DATA = " + json.dumps(cache_data, ensure_ascii=False, indent=1) + ";\n")
+        except Exception as e:
+            print(f"[GlobalNewsService] Failed to write data.js: {e}")
 
         return {"success": True, "sector": target_ind}
